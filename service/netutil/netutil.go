@@ -1,3 +1,17 @@
+// Copyright 2019 Anatole Tresch
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package netutil
 
 import (
@@ -7,22 +21,22 @@ import (
 	"time"
 )
 
-type MessageHandler interface{
+type MessageHandler interface {
 	MsgReceived(src *net.UDPAddr, message string)
 }
 
-type Multicast interface{
+type Multicast interface {
 	Start(out func() string, messageHandler MessageHandler)
 }
 
 type MulticastInstance struct {
-	srvAddr string
+	srvAddr         string
 	maxDatagramSize int
 }
 
 var (
 	instance MulticastInstance
-	once sync.Once
+	once     sync.Once
 )
 
 func GetMulticast() Multicast {
@@ -33,7 +47,7 @@ func GetMulticast() Multicast {
 }
 
 func (mc *MulticastInstance) publish(out func() string) {
-	for ; ;{
+	for {
 		addr, err := net.ResolveUDPAddr("udp", mc.srvAddr)
 		if err != nil {
 			log.Fatal(err)
@@ -65,7 +79,7 @@ func (mc *MulticastInstance) serveMulticastUDP(address string, listener MessageH
 			log.Fatal("ReadFromUDP failed:", err)
 			return
 		}
-		if(n>0) {
+		if n > 0 {
 			var message string = string(b)
 			log.Println("Multicast received: " + message)
 			listener.MsgReceived(src, message)
@@ -86,7 +100,7 @@ func GetInternalIP() string {
 		switch v := addr.(type) {
 		case *net.IPNet:
 			if !v.IP.IsLoopback() {
-				if v.IP.To4() != nil && ip==nil{//Verify if IP is IPV4
+				if v.IP.To4() != nil && ip == nil { //Verify if IP is IPV4
 					ip = v.IP
 				}
 			}
@@ -98,5 +112,3 @@ func GetInternalIP() string {
 		return ""
 	}
 }
-
-
