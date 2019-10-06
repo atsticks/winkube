@@ -1,0 +1,37 @@
+---
+- name: "Set hostname and /etc/hosts entries"
+  hosts: "all"
+  tasks:
+    - name: "Set api hostname, aliases and other master servers..."
+      include_role:
+        name: "ahuffman.hosts"
+      vars:
+        hosts_backup: False
+        hosts_set_hostname: True
+        hosts_add_hosts:
+          - hostname: "api"
+            domain: "kubecluster.local"
+            comment: 'The other webserver that does stuff'
+            alias:
+              - "intranet.externaldomain.com"
+              - "intranet"
+              - "helpdesk.helpme.com"
+              - "helpdesk"
+          - name: "api2"
+            hostname: "api2"
+            domain: "bar.com"
+            ip_addr: "kubecluster.local"
+            comment: "App server 1"
+        hosts_hostname:
+          hostname: "master1"
+          domain: "kubecluster.local"
+          alias:
+            - "api"
+            - "api1"
+          alias_loopback: False # Don't modify localhost loopback in /etc/hosts
+          add_ips:
+            - "192.168.50.1" # main NIC
+            - "10.10.10.100" # another NIC
+            # you could add ipv6 addresses to this list as well
+          ipv6: False # Don't create ipv6 loopback entries 
+

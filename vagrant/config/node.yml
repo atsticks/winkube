@@ -1,0 +1,31 @@
+---
+- name: "Set hostname and /etc/hosts entries"
+  hosts: "all"
+  tasks:
+    - name: "Set node hostname, aliases and other node/master servers..."
+      include_role:
+        name: "ahuffman.hosts"
+      vars:
+        hosts_backup: False
+        hosts_set_hostname: True
+        hosts_add_hosts:
+          - hostname: "worker1"
+            domain: "kubecluster.local"
+            comment: 'The worker node'
+          - name: "api"
+            hostname: "master1"
+            domain: "kubecluster.local"
+            ip_addr: "192.168.50.2"
+            comment: "Master server 1"
+          - name: "api2"
+            hostname: "master2"
+            domain: "kubecluster.local"
+            ip_addr: "192.168.50.2"
+            comment: "Master server 1"
+        hosts_hostname:
+          hostname: "worker1"
+          domain: "kubecluster.local"
+          alias_loopback: False # Don't modify localhost loopback in /etc/hosts
+          add_ips:
+            - "192.168.50.10" # main NIC
+          ipv6: False # Don't create ipv6 loopback entries 
