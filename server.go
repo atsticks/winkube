@@ -21,9 +21,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/mux"
 	"github.com/winkube/service"
 	"github.com/winkube/service/netutil"
-	"log"
 	"net"
 	"net/http"
 )
@@ -33,7 +33,9 @@ type RegistrationHandler struct {
 }
 
 func (RegistrationHandler) MsgReceived(src *net.UDPAddr, message string) {
-	log.Println(message)
+	var model service.InstanceModel
+	json.Unmarshal([]byte(message), model)
+	service.GetCluster().RegisterInstance(model)
 }
 
 var registrationHandler RegistrationHandler
@@ -51,11 +53,25 @@ func main() {
 	},
 		registrationHandler)
 	fmt.Println("Starting rest endpoint...")
-	http.HandleFunc("/", clusterHandler)
-	http.HandleFunc("/cluster", clusterHandler)
+	r := mux.NewRouter()
+	r.HandleFunc("/", HomeHandler)
+	r.HandleFunc("/cluster", ClusterHandler)
+	r.HandleFunc("/setup", SetupHandler)
+	http.Handle("/", r)
+
 	http.ListenAndServe(":8080", nil)
 }
 
-func clusterHandler(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Mein Cluster"))
+func HomeHandler(w http.ResponseWriter, r *http.Request) {
+	bytes, _ := json.Marshal(service.GetInstanceModel())
+	w.Write(bytes)
+}
+
+func ClusterHandler(w http.ResponseWriter, r *http.Request) {
+	bytes, _ := json.Marshal(service.GetCluster())
+	w.Write(bytes)
+}
+
+func SetupHandler(w http.ResponseWriter, r *http.Request) {
+	w.Write([]byte("Setup..."))
 }

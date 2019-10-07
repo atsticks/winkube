@@ -25,8 +25,8 @@ const MASTER_ROLE string = "master"
 const NODE_ROLE string = "node"
 
 var (
-	instance InstanceModel
-	once     sync.Once
+	instance     InstanceModel
+	instanceOnce sync.Once
 )
 
 type InstanceModel struct {
@@ -36,29 +36,8 @@ type InstanceModel struct {
 	Ip           string   `json:"ip"`
 }
 
-type Master struct {
-	InstanceModel
-	Labels map[string]string `json:"labels"`
-}
-
-type Node struct {
-	InstanceModel
-	Labels map[string]string `json:"labels"`
-}
-
-type Cluster struct {
-	IsUseMulticast     bool     `json:"multicast"`
-	Masters            []Master `json:"masters"`
-	Nodes              []Node   `json:"nodes"`
-	NodeCidr           string   `json:"nodecidr"`
-	ClusterId          string   `json:"clusterID"`
-	ClusterCredentials string   `json:"clusterCredentials"`
-	ClusterNetwork     string   `json:"clusterNet"`
-	Gateway            string   `json:"gateway"`
-}
-
 func GetInstanceModel() InstanceModel {
-	once.Do(func() {
+	instanceOnce.Do(func() {
 		instance = InstanceModel{
 			InstanceRole: UNDEFINED_ROLE,
 			Hostname:     hostname(),
