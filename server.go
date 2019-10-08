@@ -24,18 +24,16 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/winkube/service"
 	"github.com/winkube/service/netutil"
-	"net"
 	"net/http"
+	"strconv"
 )
 
 type RegistrationHandler struct {
-	answers []string
+	services []netutil.Service
 }
 
-func (RegistrationHandler) MsgReceived(src *net.UDPAddr, message string) {
-	var model service.InstanceModel
-	json.Unmarshal([]byte(message), model)
-	service.GetCluster().RegisterInstance(model)
+func (RegistrationHandler) MsgReceived(s netutil.Service) {
+	service.GetCluster().RegisterService(s)
 }
 
 var registrationHandler RegistrationHandler
@@ -43,15 +41,14 @@ var registrationHandler RegistrationHandler
 func main() {
 	mc := netutil.GetMulticast()
 	registrationHandler = RegistrationHandler{
-		answers: []string{},
+		services: []netutil.Service{},
 		//Age: 240,
 	}
 
-	go mc.Start(func() string {
-		bytes, _ := json.Marshal(service.GetInstanceModel())
-		return string(bytes)
-	},
-		registrationHandler)
+	go mc.StartAdvertizer(func() netutil.Service {
+		var model service.InstanceModel = service.GetInstanceModel()
+		return createService(model)
+	})
 	fmt.Println("Starting rest endpoint...")
 	r := mux.NewRouter()
 	r.HandleFunc("/", HomeHandler)
@@ -59,7 +56,17 @@ func main() {
 	r.HandleFunc("/setup", SetupHandler)
 	http.Handle("/", r)
 
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe("0.0.0.0:8080", nil)
+}
+
+func createService(model service.InstanceModel) netutil.Service {
+	return netutil.Service{
+		AdType:   "com.gh.atsticks.winkube",
+		Usn:      model.Id(),
+		Service:  model.InstanceRole,
+		Location: model.Host + ":" + strconv.Itoa(model.Port),
+		MaxAge:   120,
+	}
 }
 
 func HomeHandler(w http.ResponseWriter, r *http.Request) {

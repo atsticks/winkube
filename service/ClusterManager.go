@@ -15,6 +15,7 @@
 package service
 
 import (
+	"github.com/winkube/service/netutil"
 	"log"
 	"sync"
 )
@@ -28,7 +29,7 @@ func GetCluster() Cluster {
 	clusterOnce.Do(func() {
 		clusterInstance = Cluster{
 			IsUseMulticast: true,
-			Instances:      []InstanceModel{},
+			Instances:      []netutil.Service{},
 			Masters:        []Master{},
 			Nodes:          []Node{},
 			ClusterId:      "noid",
@@ -48,38 +49,41 @@ type Node struct {
 }
 
 type Cluster struct {
-	IsUseMulticast     bool            `json:"multicast"`
-	Instances          []InstanceModel `json:"instances"`
-	Masters            []Master        `json:"masters"`
-	Nodes              []Node          `json:"nodes"`
-	NodeCidr           string          `json:"nodecidr"`
-	ClusterId          string          `json:"clusterID"`
-	ClusterCredentials string          `json:"clusterCredentials"`
-	ClusterNetwork     string          `json:"clusterNet"`
-	Gateway            string          `json:"gateway"`
+	IsUseMulticast     bool              `json:"multicast"`
+	Instances          []netutil.Service `json:"instances"`
+	Masters            []Master          `json:"masters"`
+	Nodes              []Node            `json:"nodes"`
+	NodeCidr           string            `json:"nodecidr"`
+	ClusterId          string            `json:"clusterID"`
+	ClusterCredentials string            `json:"clusterCredentials"`
+	ClusterNetwork     string            `json:"clusterNet"`
+	Gateway            string            `json:"gateway"`
 }
 
-func (cl Cluster) registerModel(model InstanceModel) {
-	log.Println("Discovered new host: " + model.Hostname + "(" + model.Ip + ")")
+func (cl Cluster) registerService(service netutil.Service) {
+	if service.AdType == "winkube-service" {
+		log.Println("Discovered new service: " + service.Service + "(" + service.Location + ")")
+	}
+
 }
 
-func (cl Cluster) RegisterInstance(model InstanceModel) {
+func (cl Cluster) RegisterService(service netutil.Service) {
 	// check, if already registered as node
 	log.Println("Checking if instance is a node...")
 	for _, node := range cl.Nodes {
-		if model.Ip == node.Ip {
-			log.Println("Model is a known node: " + node.Hostname + "(" + node.Ip + ")")
+		if service.Location == node.Host {
+			log.Println("Model is a known node: " + node.Name + "(" + node.Host + ")")
 			return
 		}
 	}
 	// check, if already registered as master
 	log.Println("Checking if instance is a master...")
 	for _, master := range cl.Masters {
-		if model.Ip == master.Ip {
-			log.Println("Model is a known master: " + master.Hostname + "(" + master.Ip + ")")
+		if service.Location == master.Host {
+			log.Println("Model is a known master: " + master.Name + "(" + master.Host + ")")
 			return
 		}
 	}
 	// add node to instance list, if not present.
-	cl.registerModel(model)
+	cl.registerService(service)
 }

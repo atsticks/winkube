@@ -15,6 +15,7 @@
 package service
 
 import (
+	"github.com/google/uuid"
 	"github.com/winkube/service/netutil"
 	"os"
 	"sync"
@@ -30,19 +31,25 @@ var (
 )
 
 type InstanceModel struct {
-	InstanceRole string   `json:"role"`
-	Hostname     string   `json:"hostname"`
-	Aliases      []string `json:"aliases"`
-	Ip           string   `json:"ip"`
+	id           string `json:"id"`
+	InstanceRole string `json:"role"`
+	Name         string `json:"name"`
+	Host         string `json:"host"`
+	Port         int    `json:"port"`
+}
+
+func (model InstanceModel) Id() string {
+	return model.id
 }
 
 func GetInstanceModel() InstanceModel {
 	instanceOnce.Do(func() {
 		instance = InstanceModel{
 			InstanceRole: UNDEFINED_ROLE,
-			Hostname:     hostname(),
-			Aliases:      nil,
-			Ip:           netutil.GetInternalIP(),
+			Name:         hostname(),
+			Host:         netutil.GetInternalIP(),
+			Port:         9999,
+			id:           uuid.New().String(),
 		}
 	})
 	return instance

@@ -15,81 +15,131 @@
 package netutil
 
 import (
+	"encoding/json"
+	"github.com/koron/go-ssdp"
 	"log"
 	"net"
 	"sync"
 	"time"
 )
 
-type MessageHandler interface {
-	MsgReceived(src *net.UDPAddr, message string)
+type Service struct {
+	AdType   string // service ad type
+	Usn      string // unique id
+	Location string // adress/IP
+	Service  string // service type
+	MaxAge   int    // max caching age
+}
+
+type ServiceHandler interface {
+	ServiceReceived(service Service)
 }
 
 type Multicast interface {
-	Start(out func() string, messageHandler MessageHandler)
+	Start(out func() string, messageHandler ServiceHandler)
 }
 
 type MulticastInstance struct {
-	srvAddr         string
-	maxDatagramSize int
+	maxAge          int
+	aliveInterval   int
+	verbose         bool
+	advertiser      *ssdp.Advertiser
+	monitor         *ssdp.Monitor
+	serviceHandlers []ServiceHandler
+	aliveTick       <-chan time.Time
 }
 
 var (
-	instance MulticastInstance
-	once     sync.Once
+	multicastInstance MulticastInstance
+	once              sync.Once
 )
 
-func GetMulticast() Multicast {
+//const MULTICAST_ADR = "224.0.0.10:9000"
+
+func GetMulticast() MulticastInstance {
 	once.Do(func() {
-		instance = MulticastInstance{srvAddr: "239.0.0.0:9999", maxDatagramSize: 8192}
+		multicastInstance = MulticastInstance{
+			maxAge:        1800,
+			aliveInterval: 10,
+			verbose:       true,
+		}
+		// start cient
+		multicastInstance.monitor = &ssdp.Monitor{
+			Alive:  onAlive,
+			Bye:    onBye,
+			Search: onSearch,
+		}
+		if err := multicastInstance.monitor.Start(); err != nil {
+			log.Fatal(err)
+		}
 	})
-	return instance
+	return multicastInstance
 }
 
-func (mc *MulticastInstance) publish(out func() string) {
-	for {
-		addr, err := net.ResolveUDPAddr("udp", mc.srvAddr)
-		if err != nil {
-			log.Fatal(err)
-			return
-		}
-		c, err := net.DialUDP("udp", nil, addr)
-		message := out()
-		log.Println("Sending Multicast: " + message)
-		c.Write([]byte(message))
-		time.Sleep(5 * time.Second)
+func onAlive(m *ssdp.AliveMessage) {
+	s := Service{
+		AdType:   m.Type,
+		Usn:      m.USN,
+		Location: m.Location,
+		Service:  m.Server,
+		MaxAge:   m.MaxAge(),
+	}
+	json, _ := json.MarshalIndent(s, "", "  ")
+	log.Println("[SSDP] received: " + string(json))
+	for _, h := range GetMulticast().serviceHandlers {
+		h.ServiceReceived(s)
 	}
 }
 
-func (mc *MulticastInstance) serveMulticastUDP(address string, listener MessageHandler) {
-	resolvedAddress, err := net.ResolveUDPAddr("udp", address)
+func onBye(m *ssdp.ByeMessage) {
+	log.Printf("Bye: From=%s Type=%s USN=%s", m.From.String(), m.Type, m.USN)
+}
+
+func onSearch(m *ssdp.SearchMessage) {
+	log.Printf("Search: From=%s Type=%s", m.From.String(), m.Type)
+}
+
+func (mc *MulticastInstance) listen(listener ServiceHandler) {
+	mc.serviceHandlers = append(mc.serviceHandlers, listener)
+}
+
+func (mc MulticastInstance) StartAdvertizer(out func() Service) {
+	service := out()
+	if mc.verbose {
+		bytes, err := json.MarshalIndent(service, "", "  ")
+		if err == nil {
+			log.Println("[SSDP], advertize " + string(bytes))
+		}
+	}
+	var err error
+	mc.advertiser, err = ssdp.Advertise(
+		service.AdType,
+		service.Usn,
+		service.Location,
+		service.Service,
+		service.MaxAge)
 	if err != nil {
 		log.Fatal(err)
 	}
-	l, err := net.ListenMulticastUDP("udp", nil, resolvedAddress)
-	if err != nil {
-		log.Fatal("ReadFromUDP failed:", err)
-		return
-	}
-	l.SetReadBuffer(mc.maxDatagramSize)
-	for {
-		b := make([]byte, mc.maxDatagramSize)
-		n, src, err := l.ReadFromUDP(b)
-		if err != nil {
-			log.Fatal("ReadFromUDP failed:", err)
-			return
-		}
-		if n > 0 {
-			var message string = string(b)
-			log.Println("Multicast received: " + message)
-			listener.MsgReceived(src, message)
-		}
-	}
+	defer announceAlive(mc.verbose, out)
 }
 
-func (mc MulticastInstance) Start(out func() string, messageHandler MessageHandler) {
-	go mc.publish(out)
-	mc.serveMulticastUDP(mc.srvAddr, messageHandler)
+func announceAlive(verbose bool, out func() Service) {
+	if verbose {
+		log.Println("[SSDP], start keep alive loop...(every 10 seconds)... ")
+	}
+	for {
+		time.Sleep(10 * time.Second)
+		service := out()
+		err := ssdp.AnnounceAlive(service.AdType, service.Usn, service.Location, service.Service,
+			service.MaxAge, service.Location)
+		if err != nil {
+			log.Fatal(err)
+		} else if verbose {
+			json, _ := json.MarshalIndent(service, "", "  ")
+			log.Println("[SSDP] keep alive sent for: " + string(json))
+		}
+	}
 }
 
 // Evakuates all adresses and takes the first non loopback IP presenbt.
