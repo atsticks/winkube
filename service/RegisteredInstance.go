@@ -3,6 +3,11 @@
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
+// Copyright 2019 Anatole Tresch
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
 //    http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -18,16 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/winkube/service/netutil"
 	"os"
-	"sync"
-)
-
-const UNDEFINED_ROLE string = "undefined"
-const MASTER_ROLE string = "master"
-const NODE_ROLE string = "node"
-
-var (
-	instance     InstanceModel
-	instanceOnce sync.Once
+	"time"
 )
 
 type InstanceModel struct {
@@ -39,24 +35,41 @@ type InstanceModel struct {
 }
 
 func (model InstanceModel) Id() string {
+	if model.id == "" {
+		model.id = uuid.New().String()
+	}
 	return model.id
-}
-
-func GetInstanceModel() InstanceModel {
-	instanceOnce.Do(func() {
-		instance = InstanceModel{
-			InstanceRole: UNDEFINED_ROLE,
-			Name:         hostname(),
-			Host:         netutil.GetInternalIP(),
-			Port:         9999,
-			id:           uuid.New().String(),
-		}
-	})
-	return instance
 }
 
 func hostname() string {
 	var hn string
 	hn, _ = os.Hostname()
 	return hn
+}
+
+type RegisteredInstance struct {
+	InstanceModel
+	timestamp int
+}
+
+func RegisteredInstance_fromService(s netutil.Service) *RegisteredInstance {
+	return &RegisteredInstance{
+		InstanceModel: InstanceModel{
+			id:           s.Id,
+			InstanceRole: s.Service,
+			Host:         s.Host(),
+			Port:         s.Port(),
+		},
+		timestamp: time.Now().Nanosecond() / 1000,
+	}
+}
+
+type Master struct {
+	RegisteredInstance
+	Labels map[string]string `json:"labels"`
+}
+
+type Node struct {
+	RegisteredInstance
+	Labels map[string]string `json:"labels"`
 }

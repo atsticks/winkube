@@ -15,21 +15,36 @@
 package service
 
 import (
+	log "github.com/sirupsen/logrus"
 	"github.com/winkube/service/netutil"
-	"log"
 	"sync"
+	"time"
 )
+
+const WINKUBE_ADTYPE = "winkube-service"
 
 var (
 	clusterInstance Cluster
 	clusterOnce     sync.Once
 )
 
+type Cluster struct {
+	IsUseMulticast     bool                 `json:"multicast"`
+	Instances          []RegisteredInstance `json:"instances"`
+	Masters            []Master             `json:"masters"`
+	Nodes              []Node               `json:"nodes"`
+	NodeCidr           string               `json:"nodecidr"`
+	ClusterId          string               `json:"clusterID"`
+	ClusterCredentials string               `json:"clusterCredentials"`
+	ClusterNetwork     string               `json:"clusterNet"`
+	Gateway            string               `json:"gateway"`
+}
+
 func GetCluster() Cluster {
 	clusterOnce.Do(func() {
 		clusterInstance = Cluster{
 			IsUseMulticast: true,
-			Instances:      []netutil.Service{},
+			Instances:      []RegisteredInstance{},
 			Masters:        []Master{},
 			Nodes:          []Node{},
 			ClusterId:      "noid",
@@ -38,52 +53,64 @@ func GetCluster() Cluster {
 	return clusterInstance
 }
 
-type Master struct {
-	InstanceModel
-	Labels map[string]string `json:"labels"`
-}
-
-type Node struct {
-	InstanceModel
-	Labels map[string]string `json:"labels"`
-}
-
-type Cluster struct {
-	IsUseMulticast     bool              `json:"multicast"`
-	Instances          []netutil.Service `json:"instances"`
-	Masters            []Master          `json:"masters"`
-	Nodes              []Node            `json:"nodes"`
-	NodeCidr           string            `json:"nodecidr"`
-	ClusterId          string            `json:"clusterID"`
-	ClusterCredentials string            `json:"clusterCredentials"`
-	ClusterNetwork     string            `json:"clusterNet"`
-	Gateway            string            `json:"gateway"`
-}
-
-func (cl Cluster) registerService(service netutil.Service) {
-	if service.AdType == "winkube-service" {
-		log.Println("Discovered new service: " + service.Service + "(" + service.Location + ")")
-	}
-
-}
-
 func (cl Cluster) RegisterService(service netutil.Service) {
 	// check, if already registered as node
-	log.Println("Checking if instance is a node...")
+	log.Debug("Checking if instance is a node...")
 	for _, node := range cl.Nodes {
 		if service.Location == node.Host {
-			log.Println("Model is a known node: " + node.Name + "(" + node.Host + ")")
+			log.Debug("Model is a known node: " + node.Name + "(" + node.Host + ")")
 			return
 		}
 	}
 	// check, if already registered as master
-	log.Println("Checking if instance is a master...")
+	log.Debug("Checking if instance is a master...")
 	for _, master := range cl.Masters {
 		if service.Location == master.Host {
-			log.Println("Model is a known master: " + master.Name + "(" + master.Host + ")")
+			log.Debug("Model is a known master: " + master.Name + "(" + master.Host + ")")
 			return
 		}
 	}
 	// add node to instance list, if not present.
 	cl.registerService(service)
+}
+
+func (cl Cluster) getInstance(service *netutil.Service) *RegisteredInstance {
+	for _, item := range cl.Instances {
+		if service.Service == item.InstanceRole &&
+			service.Id == item.id {
+			return &item
+		}
+	}
+	return nil
+}
+
+func (cl Cluster) registerService(service netutil.Service) {
+	if service.AdType == WINKUBE_ADTYPE {
+		log.Debug("Discovered new service: " + service.Service + "(" + service.Location + ")")
+		existing := cl.getInstance(&service)
+		if existing == nil {
+			log.Debug("Adding service to service catalogue: %v...", service)
+			cl.Instances = append(cl.Instances, *RegisteredInstance_fromService(service))
+		} else {
+			updateInstance(existing, &service)
+		}
+	}
+}
+
+func updateInstance(existing *RegisteredInstance, service *netutil.Service) {
+	log.Debug("Updating instance %v with %v.", existing, service)
+	existing.Host = service.Host()
+	existing.Port = service.Port()
+	existing.timestamp = time.Now().Nanosecond() / 1000
+}
+
+// Find takes a slice and looks for an element using the given predicate in it.
+// If found it will return the item found, otherwise nil.
+func findWithPredicate(slice []interface{}, predicate func(interface{}) bool) interface{} {
+	for item := range slice {
+		if predicate(item) {
+			return item
+		}
+	}
+	return nil
 }

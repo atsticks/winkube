@@ -20,11 +20,13 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
 	"github.com/winkube/service"
 	"github.com/winkube/service/netutil"
+	"github.com/winkube/service/util"
 	"net/http"
+	"os"
 	"strconv"
 )
 
@@ -32,24 +34,41 @@ type RegistrationHandler struct {
 	services []netutil.Service
 }
 
-func (RegistrationHandler) MsgReceived(s netutil.Service) {
+func (RegistrationHandler) ServiceReceived(s netutil.Service) {
 	service.GetCluster().RegisterService(s)
 }
 
 var registrationHandler RegistrationHandler
+var multicast netutil.Multicast
+
+func init() {
+	//log.SetFormatter(&log.JSONFormatter{}) // Log as JSON instead of the default ASCII formatter.
+	log.SetFormatter(util.NewPlainFormatter())
+
+	// Output to stdout instead of the default stderr
+	log.SetOutput(os.Stdout)
+	log.SetLevel(log.DebugLevel)
+	//log.SetReportCaller(true)
+	log.WithFields(log.Fields{
+		"app":    "kube-win",
+		"node":   netutil.GetInternalIP(),
+		"server": netutil.RuntimeInfo(),
+	}).Info("Win-Kube node starting...")
+}
 
 func main() {
-	mc := netutil.GetMulticast()
-	registrationHandler = RegistrationHandler{
-		services: []netutil.Service{},
-		//Age: 240,
-	}
-
-	go mc.StartAdvertizer(func() netutil.Service {
-		var model service.InstanceModel = service.GetInstanceModel()
-		return createService(model)
+	multicast = netutil.CreateMulticast(service.WINKUBE_ADTYPE, func() []netutil.Service {
+		var model service.ServerInstance = service.GetInstance()
+		return []netutil.Service{createService(model)}
 	})
-	fmt.Println("Starting rest endpoint...")
+	log.Info("Multicast setup, registering handlers...")
+	multicast.Listen(RegistrationHandler{
+		services: []netutil.Service{},
+	})
+	log.Info("Starting Multicast...")
+	multicast.StartAdvertizer()
+
+	log.Info("Starting rest endpoints...")
 	r := mux.NewRouter()
 	r.HandleFunc("/", HomeHandler)
 	r.HandleFunc("/cluster", ClusterHandler)
@@ -59,18 +78,20 @@ func main() {
 	http.ListenAndServe("0.0.0.0:8080", nil)
 }
 
-func createService(model service.InstanceModel) netutil.Service {
+func createService(model service.ServerInstance) netutil.Service {
 	return netutil.Service{
-		AdType:   "com.gh.atsticks.winkube",
-		Usn:      model.Id(),
+		AdType:   service.WINKUBE_ADTYPE,
+		Id:       model.Id(),
 		Service:  model.InstanceRole,
+		Version:  "1",
 		Location: model.Host + ":" + strconv.Itoa(model.Port),
+		Server:   netutil.RuntimeInfo(),
 		MaxAge:   120,
 	}
 }
 
 func HomeHandler(w http.ResponseWriter, r *http.Request) {
-	bytes, _ := json.Marshal(service.GetInstanceModel())
+	bytes, _ := json.Marshal(service.GetInstance())
 	w.Write(bytes)
 }
 
