@@ -126,7 +126,7 @@ type Multicast struct {
 /*
  * Creates a new Multicast server.
  */
-func CreateMulticast(advertisementType string, providedServices func() []Service) Multicast {
+func CreateMulticast(advertisementType string, providedServices func() []Service) *Multicast {
 	multicastInstance := Multicast{
 		adType:           advertisementType,
 		providedServices: providedServices,
@@ -144,7 +144,7 @@ func CreateMulticast(advertisementType string, providedServices func() []Service
 	if err := multicastInstance.monitor.Start(); err != nil {
 		log.Fatal(err)
 	}
-	return multicastInstance
+	return &multicastInstance
 }
 
 /*

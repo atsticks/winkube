@@ -25,8 +25,10 @@ import (
 	"github.com/winkube/service"
 	"github.com/winkube/service/netutil"
 	"github.com/winkube/service/util"
+	"github.com/winkube/webapp"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 )
 
@@ -38,8 +40,10 @@ func (RegistrationHandler) ServiceReceived(s netutil.Service) {
 	service.GetCluster().RegisterService(s)
 }
 
+var configuration *AppConfiguration;
 var registrationHandler RegistrationHandler
-var multicast netutil.Multicast
+var multicast *netutil.Multicast
+var setupWebapp *webapp.WebApplication
 
 func init() {
 	//log.SetFormatter(&log.JSONFormatter{}) // Log as JSON instead of the default ASCII formatter.
@@ -54,9 +58,47 @@ func init() {
 		"node":   netutil.GetInternalIP(),
 		"server": netutil.RuntimeInfo(),
 	}).Info("Win-Kube node starting...")
+	// reading configuration
+	configuration = ReadAppConfig("winkube-config.json")
 }
 
-func main() {
+func startSetup(r *mux.Router){
+	setupWebapp = webapp.Create("WinKube-Setup")
+	// Pages
+	setupWebapp.AddPage(&webapp.Page{
+		Name:     "setup",
+		Template: "templates/setup/index.html",
+		Title:    "Welcome to WinKube - Setup",
+	}).AddPage(&webapp.Page{
+		Name:     "setup1",
+		Template: "templates/setup/setup1.html",
+		Title:    "WinKube Setup - Step 1",
+	}).AddPage(&webapp.Page{
+		Name:     "setup2",
+		Template: "templates/setup/setup2.html",
+		Title:    "WinKube Setup - Step 2",
+	}).AddPage(&webapp.Page{
+		Name:     "setup3",
+		Template: "templates/setup/setup3.html",
+		Title:    "WinKube Setup - Step 3",
+	})
+	// Actions
+	setupWebapp.SetAction("/", *SetupAction())
+		.SetAction("/save-step1", *SaveSetup1Action())
+		.SetAction("/save-step2", *SaveSetup2Action())
+		.SetAction("/validate-config", *ValidateConfigAction())
+	r.HandleFunc("/setup", setupWebapp.HandleRequest)
+}
+
+func startApplication(r *mux.Router) {
+	if(configuration.MulticastEnabled){
+		startMuilticast()
+	}
+	r.HandleFunc("/", HomeHandler)
+	r.HandleFunc("/cluster", ClusterHandler)
+}
+
+func startMuilticast(){
 	multicast = netutil.CreateMulticast(service.WINKUBE_ADTYPE, func() []netutil.Service {
 		var model service.ServerInstance = service.GetInstance()
 		return []netutil.Service{createService(model)}
@@ -67,15 +109,32 @@ func main() {
 	})
 	log.Info("Starting Multicast...")
 	multicast.StartAdvertizer()
+}
 
-	log.Info("Starting rest endpoints...")
+func main() {
+	log.Info("Starting web endpoints...")
 	r := mux.NewRouter()
-	r.HandleFunc("/", HomeHandler)
-	r.HandleFunc("/cluster", ClusterHandler)
-	r.HandleFunc("/setup", SetupHandler)
-	http.Handle("/", r)
+	if(!configuration.Ready()){
+		startSetup(r)
+		http.Handle("/", r)
+		http.ListenAndServe("0.0.0.0:8080", nil)
+		explore("/setup")
+	}else {
+		startApplication(r)
+		http.Handle("/", r)
+		// stay silent !
+		http.ListenAndServe("0.0.0.0:8080", nil)
+	}
 
-	http.ListenAndServe("0.0.0.0:8080", nil)
+}
+
+func explore(path string) {
+	// TODO also check for Linux/other browsers?
+	cmd := exec.Command("explorer", path)
+	err := cmd.Run()
+	if err != nil {
+		log.Panic("Cannopt open explorer...", err)
+	}
 }
 
 func createService(model service.ServerInstance) netutil.Service {
@@ -100,6 +159,20 @@ func ClusterHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(bytes)
 }
 
-func SetupHandler(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Setup..."))
+
+type SetupAction struct{}
+func (a *SetupAction)doAction(req *webapp.RequestContext, writer http.ResponseWriter)*webapp.ActionResponse{
+	return nil
+}
+type SaveSetup1Action struct{}
+func (a *SaveSetup1Action)doAction(req *webapp.RequestContext, writer http.ResponseWriter)*webapp.ActionResponse{
+	return nil
+}
+type SaveSetup2Action struct{}
+func (a *SaveSetup2Action)doAction(req *webapp.RequestContext, writer http.ResponseWriter)*webapp.ActionResponse{
+	return nil
+}
+type ValidateConfigAction struct{}
+func (a *ValidateConfigAction)doAction(req *webapp.RequestContext, writer http.ResponseWriter)*webapp.ActionResponse{
+	return nil
 }

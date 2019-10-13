@@ -101,7 +101,8 @@ $configureMaster = <<-SCRIPT
     # required for setting up password less ssh between guest VMs
     sudo sed -i "/^[^#]*PasswordAuthentication[[:space:]]no/c\PasswordAuthentication yes" /etc/ssh/sshd_config
     sudo service sshd restart
-
+    # when using NAT/port forwarding instead of bridged mode:
+    # config.vm.network :forwarded_port, guest: 443, host: 443
 SCRIPT
 
 $configureNode = <<-SCRIPT
@@ -109,6 +110,11 @@ $configureNode = <<-SCRIPT
     apt-get install -y sshpass
     sshpass -p "vagrant" scp -o StrictHostKeyChecking=no vagrant@192.168.205.10:/etc/kubeadm_join_cmd.sh .
     sh ./kubeadm_join_cmd.sh
+    # when using NAT/port forwarding instead of bridged mode:
+    # config.vm.network :forwarded_port, guest: 10250, host: 10250
+    # for i in 30000..32767
+    #     config.vm.network :forwarded_port, guest: i, host: i
+    # end
 SCRIPT
 
 $configureAnsible = <<-SCRIPT
