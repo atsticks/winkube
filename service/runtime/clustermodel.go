@@ -17,7 +17,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package service
+package runtime
 
 import (
 	"github.com/google/uuid"
@@ -27,11 +27,19 @@ import (
 )
 
 type InstanceModel struct {
-	id           string `json:"id"`
-	InstanceRole string `json:"role"`
-	Name         string `json:"name"`
-	Host         string `json:"host"`
-	Port         int    `json:"port"`
+	id   string `json:"id"`
+	Name string `json:"name"`
+	Host string `json:"host"`
+	Port int    `json:"port"`
+}
+
+func CreateDefaultInstanceModel() *InstanceModel {
+	return &InstanceModel{
+		Name: hostname(),
+		Host: netutil.GetDefaultIP().String(),
+		Port: 9999,
+		id:   uuid.New().String(),
+	}
 }
 
 func (model InstanceModel) Id() string {
@@ -41,27 +49,9 @@ func (model InstanceModel) Id() string {
 	return model.id
 }
 
-func hostname() string {
-	var hn string
-	hn, _ = os.Hostname()
-	return hn
-}
-
 type RegisteredInstance struct {
 	InstanceModel
 	timestamp int
-}
-
-func RegisteredInstance_fromService(s netutil.Service) *RegisteredInstance {
-	return &RegisteredInstance{
-		InstanceModel: InstanceModel{
-			id:           s.Id,
-			InstanceRole: s.Service,
-			Host:         s.Host(),
-			Port:         s.Port(),
-		},
-		timestamp: time.Now().Nanosecond() / 1000,
-	}
 }
 
 type Master struct {
@@ -72,4 +62,21 @@ type Master struct {
 type Node struct {
 	RegisteredInstance
 	Labels map[string]string `json:"labels"`
+}
+
+func RegisteredInstance_fromService(s netutil.Service) *RegisteredInstance {
+	return &RegisteredInstance{
+		InstanceModel: InstanceModel{
+			id:   s.Id,
+			Host: s.Host(),
+			Port: s.Port(),
+		},
+		timestamp: time.Now().Nanosecond() / 1000,
+	}
+}
+
+func hostname() string {
+	var hn string
+	hn, _ = os.Hostname()
+	return hn
 }

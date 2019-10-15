@@ -33,12 +33,16 @@ type WebApplication struct {
 	Pages           map[string]*Page
 	Actions         map[string]*Action
 	sessionStore    *sessions.CookieStore
+	rootContext     string
 }
 
-func Create(name string) *WebApplication {
+func Create(name string, rootContext string) *WebApplication {
 	app := WebApplication{
 		Name:            name,
-		templateManager: &TemplateManager{},
+		templateManager: NewTemplateManager(),
+		Pages:           make(map[string]*Page),
+		Actions:         make(map[string]*Action),
+		rootContext:     rootContext,
 		sessionStore:    sessions.NewCookieStore([]byte("WinKubeIsSoCool")),
 	}
 	app.sessionStore.Options = &sessions.Options{
@@ -49,8 +53,8 @@ func Create(name string) *WebApplication {
 	return &app
 }
 
-func (app *WebApplication) SetAction(name string, action *Action) *WebApplication {
-	app.Actions[name] = action
+func (app *WebApplication) SetAction(name string, action Action) *WebApplication {
+	app.Actions[name] = &action
 	return app
 }
 
@@ -69,9 +73,13 @@ func (app *WebApplication) HandleRequest(writer http.ResponseWriter, req *http.R
 			Application: app,
 			Request:     req,
 		}
-		actionResponse := (*action).doAction(context, writer)
-		if actionResponse.NextPage != nil {
-			renderedPage := actionResponse.NextPage.render(actionResponse.Model)
+		actionResponse := (*action).DoAction(context, writer)
+		if actionResponse.NextPage != "" {
+			nextPage, found := app.Pages[actionResponse.NextPage]
+			if !found {
+				panic("Invalid page: " + actionResponse.NextPage)
+			}
+			renderedPage := nextPage.render(actionResponse.Model)
 			buf := bytes.NewBufferString(renderedPage)
 			writer.Write(buf.Bytes())
 			return
@@ -105,8 +113,9 @@ func (app *WebApplication) InitTemplates(templates map[string]string) *WebApplic
 func (app *WebApplication) AddPage(page *Page) *WebApplication {
 	// Check for existing template
 	if app.templateManager.Templates[page.Template] == nil {
-		app.templateManager.initTemplates(page.Template)
+		app.templateManager.initTemplate(page.Template)
 	}
+	page.application = *app
 	app.Pages[page.Name] = page
 	return app
 }
@@ -119,6 +128,12 @@ func (app *WebApplication) findAction(req *http.Request) *Action {
 		action = app.Actions[actionName[0]]
 	}
 	path := uri.Path
+	if strings.Index(path, app.rootContext) == 0 {
+		path = strings.TrimPrefix(path, app.rootContext)
+	}
+	if !(strings.Index(path, "/") == 0) {
+		path = "/" + path
+	}
 	action = app.Actions[path]
 	if action == nil {
 		// check subsplits
@@ -142,6 +157,12 @@ func (app *WebApplication) findPage(req *http.Request) *Page {
 		page = app.Pages[pageName[0]]
 	}
 	path := uri.Path
+	if strings.Index(path, app.rootContext) == 0 {
+		path = strings.TrimPrefix(path, app.rootContext)
+	}
+	if !(strings.Index(path, "/") == 0) {
+		path = "/" + path
+	}
 	page = app.Pages[path]
 	if page == nil {
 		// check subsplits

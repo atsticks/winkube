@@ -12,16 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package assert
 
-type AppConfiguration struct {
-	MulticastEnabled bool
+//Provides several simple assertions that are handy in a daily progrtammers life.
+
+// Asserts the value is not nil, panics if so.
+func AssertNotNil(instance interface{}) interface{} {
+	return AssertNotNilWithMsg(instance, "Instance is nil")
 }
 
-func (conf AppConfiguration) Ready() bool {
-	return false
-}
-
-func ReadAppConfig(file string) *AppConfiguration {
-	return nil
+// Asserts the value is not nil, panics if so with the given message.
+func AssertNotNilWithMsg(instance interface{}, message string) interface{} {
+	if instance == nil {
+		if message == "" {
+			panic("Instance is nil")
+		} else {
+			panic(message)
+		}
+	}
+	return instance
 }

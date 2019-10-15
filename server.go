@@ -22,48 +22,18 @@ import (
 	"encoding/json"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
-	"github.com/winkube/service"
 	"github.com/winkube/service/netutil"
+	"github.com/winkube/service/runtime"
 	"github.com/winkube/service/util"
 	"github.com/winkube/webapp"
 	"net/http"
-	"os"
 	"os/exec"
 	"strconv"
 )
 
-type RegistrationHandler struct {
-	services []netutil.Service
-}
-
-func (RegistrationHandler) ServiceReceived(s netutil.Service) {
-	service.GetCluster().RegisterService(s)
-}
-
-var configuration *AppConfiguration;
-var registrationHandler RegistrationHandler
-var multicast *netutil.Multicast
-var setupWebapp *webapp.WebApplication
-
-func init() {
-	//log.SetFormatter(&log.JSONFormatter{}) // Log as JSON instead of the default ASCII formatter.
-	log.SetFormatter(util.NewPlainFormatter())
-
-	// Output to stdout instead of the default stderr
-	log.SetOutput(os.Stdout)
-	log.SetLevel(log.DebugLevel)
-	//log.SetReportCaller(true)
-	log.WithFields(log.Fields{
-		"app":    "kube-win",
-		"node":   netutil.GetInternalIP(),
-		"server": netutil.RuntimeInfo(),
-	}).Info("Win-Kube node starting...")
-	// reading configuration
-	configuration = ReadAppConfig("winkube-config.json")
-}
-
-func startSetup(r *mux.Router){
-	setupWebapp = webapp.Create("WinKube-Setup")
+func setupWebApplication(router *mux.Router) *webapp.WebApplication {
+	log.Info("Initializing setup...")
+	setupWebapp := webapp.Create("WinKube-Setup", "/setup")
 	// Pages
 	setupWebapp.AddPage(&webapp.Page{
 		Name:     "setup",
@@ -83,49 +53,67 @@ func startSetup(r *mux.Router){
 		Title:    "WinKube Setup - Step 3",
 	})
 	// Actions
-	setupWebapp.SetAction("/", *SetupAction())
-		.SetAction("/save-step1", *SaveSetup1Action())
-		.SetAction("/save-step2", *SaveSetup2Action())
-		.SetAction("/validate-config", *ValidateConfigAction())
-	r.HandleFunc("/setup", setupWebapp.HandleRequest)
+	setupWebapp.SetAction("/", &SetupAction{})
+	setupWebapp.SetAction("/save-step1", &SaveSetup1Action{})
+	setupWebapp.SetAction("/save-step2", &SaveSetup2Action{})
+	setupWebapp.SetAction("/validate-config", &ValidateConfigAction{})
+	return setupWebapp
 }
 
-func startApplication(r *mux.Router) {
-	if(configuration.MulticastEnabled){
-		startMuilticast()
-	}
-	r.HandleFunc("/", HomeHandler)
-	r.HandleFunc("/cluster", ClusterHandler)
+func StartMuilticast() {
+	log.Info("Starting UPnP multicast...")
+	runtime.Container().ServiceRegistry.StartUPnP(&runtime.Container().ServiceProvider, 1900)
 }
 
-func startMuilticast(){
-	multicast = netutil.CreateMulticast(service.WINKUBE_ADTYPE, func() []netutil.Service {
-		var model service.ServerInstance = service.GetInstance()
-		return []netutil.Service{createService(model)}
-	})
-	log.Info("Multicast setup, registering handlers...")
-	multicast.Listen(RegistrationHandler{
-		services: []netutil.Service{},
-	})
-	log.Info("Starting Multicast...")
-	multicast.StartAdvertizer()
-}
-
-func main() {
-	log.Info("Starting web endpoints...")
-	r := mux.NewRouter()
-	if(!configuration.Ready()){
-		startSetup(r)
-		http.Handle("/", r)
-		http.ListenAndServe("0.0.0.0:8080", nil)
+func startup() {
+	http.Handle("/", runtime.Container().Router)
+	http.ListenAndServe("0.0.0.0:8080", nil)
+	if !runtime.Container().Config.Ready() {
 		explore("/setup")
-	}else {
-		startApplication(r)
-		http.Handle("/", r)
-		// stay silent !
-		http.ListenAndServe("0.0.0.0:8080", nil)
 	}
+}
 
+// Web action starting the setup process
+type SetupAction struct{}
+
+func (a *SetupAction) DoAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	return &webapp.ActionResponse{
+		NextPage: "setup",
+		Model:    nil,
+	}
+}
+
+// Web action continuing the setup process to step one
+type SaveSetup1Action struct{}
+
+func (a SaveSetup1Action) DoAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	return nil
+}
+
+// Web action continuing the setup process to step two
+type SaveSetup2Action struct{}
+
+func (a SaveSetup2Action) DoAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	return nil
+}
+
+// Web action continuing the setup process to validate the setup and start the node installation
+type ValidateConfigAction struct{}
+
+func (a ValidateConfigAction) DoAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	return nil
+}
+
+// Main that starts the server
+func main() {
+	log.Info("Starting management container...")
+	log.Info(runtime.Container().Stats())
+	if !runtime.Container().Config.Ready() {
+		router := runtime.Container().Router
+		setupWebapp := setupWebApplication(router)
+		router.HandleFunc("/setup", setupWebapp.HandleRequest)
+	}
+	startup()
 }
 
 func explore(path string) {
@@ -137,42 +125,24 @@ func explore(path string) {
 	}
 }
 
-func createService(model service.ServerInstance) netutil.Service {
+func createDummyService(nodeConfig runtime.NodeConfig) netutil.Service {
 	return netutil.Service{
-		AdType:   service.WINKUBE_ADTYPE,
-		Id:       model.Id(),
-		Service:  model.InstanceRole,
+		AdType:   runtime.WINKUBE_ADTYPE,
+		Id:       nodeConfig.Id(),
+		Service:  nodeConfig.NodeType.String(),
 		Version:  "1",
-		Location: model.Host + ":" + strconv.Itoa(model.Port),
-		Server:   netutil.RuntimeInfo(),
-		MaxAge:   120,
+		Location: nodeConfig.Host + ":" + strconv.Itoa(nodeConfig.Port),
+		Server:   util.RuntimeInfo() + " UPnP/1.0 WinKube/1.0",
+		MaxAge:   60,
 	}
 }
 
 func HomeHandler(w http.ResponseWriter, r *http.Request) {
-	bytes, _ := json.Marshal(service.GetInstance())
+	bytes, _ := json.Marshal(runtime.Container().Config.NodeConfig)
 	w.Write(bytes)
 }
 
 func ClusterHandler(w http.ResponseWriter, r *http.Request) {
-	bytes, _ := json.Marshal(service.GetCluster())
+	bytes, _ := json.Marshal(runtime.Container().Config)
 	w.Write(bytes)
-}
-
-
-type SetupAction struct{}
-func (a *SetupAction)doAction(req *webapp.RequestContext, writer http.ResponseWriter)*webapp.ActionResponse{
-	return nil
-}
-type SaveSetup1Action struct{}
-func (a *SaveSetup1Action)doAction(req *webapp.RequestContext, writer http.ResponseWriter)*webapp.ActionResponse{
-	return nil
-}
-type SaveSetup2Action struct{}
-func (a *SaveSetup2Action)doAction(req *webapp.RequestContext, writer http.ResponseWriter)*webapp.ActionResponse{
-	return nil
-}
-type ValidateConfigAction struct{}
-func (a *ValidateConfigAction)doAction(req *webapp.RequestContext, writer http.ResponseWriter)*webapp.ActionResponse{
-	return nil
 }

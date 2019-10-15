@@ -48,11 +48,11 @@ type RequestContext struct {
 }
 
 type ActionResponse struct {
-	NextPage *Page
+	NextPage string
 	Model    *interface{}
 	complete bool
 }
 
 type Action interface {
-	doAction(req *RequestContext, writer http.ResponseWriter) *ActionResponse
+	DoAction(req *RequestContext, writer http.ResponseWriter) *ActionResponse
 }

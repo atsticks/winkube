@@ -15,6 +15,7 @@
 package webapp
 
 import (
+	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"strings"
 	"text/template"
@@ -24,10 +25,17 @@ type TemplateManager struct {
 	Templates map[string]*template.Template
 }
 
+func NewTemplateManager() *TemplateManager {
+	return &TemplateManager{
+		Templates: make(map[string]*template.Template),
+	}
+}
+
 func (tm *TemplateManager) initTemplate(template string) {
 	t := tm.readTemplate(template, template)
 	if t == nil {
-		// TODO log error
+		log.Error("Cannot read template " + template)
+		return
 	}
 	tm.Templates[template] = t
 }
@@ -43,7 +51,7 @@ func (tm *TemplateManager) initTemplates(templates map[string]string) {
 }
 
 func (tm *TemplateManager) readTemplate(name string, file string) *template.Template {
-	dat, err := ioutil.ReadFile("/tmp/dat")
+	dat, err := ioutil.ReadFile(name)
 	if err != nil {
 		// TODO log err
 		return nil

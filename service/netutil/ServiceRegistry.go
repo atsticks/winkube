@@ -18,42 +18,104 @@ import (
 	"encoding/json"
 	"github.com/koron/go-ssdp"
 	log "github.com/sirupsen/logrus"
+	"github.com/winkube/service/assert"
 	"github.com/winkube/service/util"
 	"net"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 )
 
-/*
- * Defines a Service that can be published using UPnP or a specified set of denoted master nodes.
- */
+// Defines a Service that can be published using UPnP or a specified set of denoted master nodes.
 type Service struct {
-	AdType   string // service ad type
-	Id       string // uuid
-	Location string // adress/IP
-	Service  string // service type
-	Version  string // service version
-	Server   string // server info
-	MaxAge   int    // max caching age
+	AdType   string `validate:"required"`
+	Id       string `validate:"required"`
+	Location string `validate:"required,ip"`
+	Service  string `validate:"required"`
+	Version  string `validate:"required"`
+	Server   string
+	MaxAge   int `validate:"required,min=0"`
 }
 
-/*
- * Access the host part of the Location field.
- */
-func (s Service) Host() string {
-	parts := strings.Split(s.Location, ":")
+// A ServiceRegistry publishes and reads services using multicast requests using the UPnP protocol.
+// If no multicast is available/supported, expicit service catalogs can be configured instead of.
+type ServiceRegistry interface {
+
+	// Configures the registry as UPnP service using the given port (default is 1900). This
+	// will restart any running service and clear all currently tracked services.
+	StartUPnP(serviceProvider *ServiceProvider, upnpPort int)
+
+	// Configure the registry to read explicitly from the given service catalogues, if available, instead
+	// of using UPnP/multicast. This will restart any running service and clear all currently tracked services.
+	StartServiceCatalogue(serviceProvider *ServiceProvider, catalogs []string)
+
+	// This method explicitly stops the registry service. No collected service data will be removed, but no
+	// further updates will happen.
+	Stop()
+
+	// Registers a listener for received service events.
+	Listen(listener *ServiceListener)
+
+	// Unregisters a listener for received service events.
+	Unlisten(listener *ServiceListener)
+}
+
+// Interface for providing services to be advertised
+type ServiceProvider interface {
+	GetServices() []Service
+}
+
+// Interface for handling service announcements received via UPnP.
+type ServiceListener interface {
+	ServiceReceived(service Service)
+}
+
+// ServiceRegistry server instance that monitors and publishes services.
+type serviceRegistry struct {
+	adType          string  `validate:"required"`
+	localIp         *net.IP `validate:"required, ip"`
+	aliveInterval   int     `validate:"required,min=5"`
+	advertizers     map[string]*ssdp.Advertiser
+	verbose         bool
+	advertizing     bool
+	monitor         *ssdp.Monitor
+	serviceProvider *ServiceProvider
+	serviceHandlers []*ServiceListener
+}
+
+// Creates a new ServiceRegistry server.
+func InitServiceRegistry(advertisementType string, serviceProvider *ServiceProvider) ServiceRegistry {
+	var serviceRegistry = serviceRegistry{
+		adType:          advertisementType,
+		serviceProvider: serviceProvider,
+		aliveInterval:   30,
+		verbose:         true,
+		localIp:         GetDefaultIP(),
+		advertizers:     map[string]*ssdp.Advertiser{},
+	}
+	// start client
+	serviceRegistry.monitor = &ssdp.Monitor{
+		Alive:  serviceRegistry.onAlive,
+		Bye:    serviceRegistry.onBye,
+		Search: serviceRegistry.onSearch,
+	}
+	if err := serviceRegistry.monitor.Start(); err != nil {
+		log.Fatal(err)
+	}
+	return serviceRegistry
+}
+
+// Access the host part of the Location field.
+func (this Service) Host() string {
+	parts := strings.Split(this.Location, ":")
 	return parts[0]
 }
 
-/*
- * Access the port part of the Location field.
- */
-func (s Service) Port() int {
-	parts := strings.Split(s.Location, ":")
+// Access the port part of the Location field.
+func (this Service) Port() int {
+	parts := strings.Split(this.Location, ":")
 	if len(parts) != 2 {
-		panic("Invalid host:port location: " + s.Location)
+		panic("Invalid host:port location: " + this.Location)
 	}
 	i, err := strconv.Atoi(parts[1])
 	if err != nil {
@@ -62,24 +124,18 @@ func (s Service) Port() int {
 	return i
 }
 
-/*
- * Constructs a UPnP compatible USN field value.
- */
-func (s Service) USN() string {
-	return "uuid:" + s.Id + "::urn:winkube-org:service:" + s.Service + ":" + s.Version
+// Constructs a UPnP compatible USN field value.
+func (this Service) USN() string {
+	return "uuid:" + this.Id + "::urn:winkube-org:service:" + this.Service + ":" + this.Version
 }
 
-/*
- * Constructs a UPnP compatible ST (service type) field value.
- */
-func (s Service) ST() string {
-	return "urn:winkube-org:service:" + s.Service + ":" + s.Version
+// Constructs a UPnP compatible ST (service type) field value.
+func (this Service) ST() string {
+	return "urn:winkube-org:service:" + this.Service + ":" + this.Version
 }
 
-/**
- * Extracts the service name of an URN of the form uuid:38a83898-fd17-4b84-a37d-2b4460d49e8f::urn:winkube-org:service:myService:1.
- * The examplke above results in myService.
- */
+// Extracts the service name of an URN of the form uuid:38a83898-fd17-4b84-a37d-2b4460d49e8f::urn:winkube-org:service:myService:1.
+// The examplke above results in myService.
 func ServiceFromUSN(usn string) string {
 	parts := strings.Split(usn, "::")
 	if len(parts) >= 2 {
@@ -89,10 +145,8 @@ func ServiceFromUSN(usn string) string {
 	return usn
 }
 
-/**
- * Extracts the UUID of an URN of the form uuid:38a83898-fd17-4b84-a37d-2b4460d49e8f::urn:winkube-org:service:myService:1.
- * The examplke above results in 38a83898-fd17-4b84-a37d-2b4460d49e8f.
- */
+// Extracts the UUID of an URN of the form uuid:38a83898-fd17-4b84-a37d-2b4460d49e8f::urn:winkube-org:service:myService:1.
+// The examplke above results in 38a83898-fd17-4b84-a37d-2b4460d49e8f.
 func UUIDFromUSN(usn string) string {
 	parts := strings.Split(usn, "::")
 	if len(parts) >= 1 {
@@ -101,57 +155,9 @@ func UUIDFromUSN(usn string) string {
 	return usn
 }
 
-/*
- * Interface for handling service announcements received via UPnP.
- */
-type ServiceHandler interface {
-	ServiceReceived(service Service)
-}
-
-/*
- * Multicast server instance that monitors and publishes services.
- */
-type Multicast struct {
-	adType           string
-	localIp          string
-	aliveInterval    int
-	advertizers      map[string]*ssdp.Advertiser
-	verbose          bool
-	advertizing      bool
-	monitor          *ssdp.Monitor
-	providedServices func() []Service
-	serviceHandlers  []ServiceHandler
-}
-
-/*
- * Creates a new Multicast server.
- */
-func CreateMulticast(advertisementType string, providedServices func() []Service) *Multicast {
-	multicastInstance := Multicast{
-		adType:           advertisementType,
-		providedServices: providedServices,
-		aliveInterval:    30,
-		verbose:          true,
-		localIp:          GetInternalIP(),
-		advertizers:      map[string]*ssdp.Advertiser{},
-	}
-	// start client
-	multicastInstance.monitor = &ssdp.Monitor{
-		Alive:  multicastInstance.onAlive,
-		Bye:    multicastInstance.onBye,
-		Search: multicastInstance.onSearch,
-	}
-	if err := multicastInstance.monitor.Start(); err != nil {
-		log.Fatal(err)
-	}
-	return &multicastInstance
-}
-
-/*
- * Method called when a service is published on the UPnP bus.
- */
-func (mc Multicast) onAlive(m *ssdp.AliveMessage) {
-	if m.From.String() == mc.localIp {
+// Method called when a service is published on the UPnP bus.
+func (this serviceRegistry) onAlive(m *ssdp.AliveMessage) {
+	if m.From.String() == this.localIp.String() {
 		log.Debug("[SSDP] Ignoring my own alive ticket.")
 	}
 	s := Service{
@@ -164,73 +170,83 @@ func (mc Multicast) onAlive(m *ssdp.AliveMessage) {
 	}
 	json, _ := json.MarshalIndent(s, "", "  ")
 	log.Debugln("[SSDP] received ", string(json))
-	for _, h := range mc.serviceHandlers {
-		h.ServiceReceived(s)
+	for _, h := range this.serviceHandlers {
+		(*h).ServiceReceived(s)
 	}
 }
 
-/*
- * Method called when a service is removed on the UPnP bus.
- */
-func (mc Multicast) onBye(m *ssdp.ByeMessage) {
+// Method called when a service is removed on the UPnP bus.
+func (this serviceRegistry) onBye(m *ssdp.ByeMessage) {
 	s := Service{
 		AdType:  m.Type,
 		Id:      UUIDFromUSN(m.USN),
 		Service: ServiceFromUSN(m.USN),
 	}
 	log.Info("Bye: From %s\n", s)
-	if m.From.String() != mc.localIp {
+	if m.From.String() != this.localIp.String() {
 		// TODO handle service exit...
 	}
 }
 
-/*
- * Method called when a search request is published on the UPnP bus. Hereby the response is should be sent via
- * Unicast typically to port 1900 to the requesting location. This functions is inherently unsafe and
- * therefore will not be supported.
- */
-func (mc Multicast) onSearch(m *ssdp.SearchMessage) {
+// Method called when a search request is published on the UPnP bus. Hereby the response is should be sent via
+// Unicast typically to port 1900 to the requesting location. This functions is inherently unsafe and
+//therefore will not be supported.
+func (this serviceRegistry) onSearch(m *ssdp.SearchMessage) {
 	log.Info("Search request ignored: From=", m.From.String(), " Type=", m.Type)
-	if mc.adType == m.Type {
-		if mc.providedServices != nil {
-			//services := mc.providedServices()
-			if mc.verbose {
-				log.Info("[SSDP] TODO Answering UPnP search request for %s", mc.adType)
+	if this.adType == m.Type {
+		if this.serviceProvider != nil {
+			//services := mc.serviceProvider()
+			if this.verbose {
+				log.Info("[SSDP] TODO Answering UPnP search request for %s", this.adType)
 			}
 		}
 	}
 }
 
-/*
- * Adds a listener for handling multicast service announcements.
- */
-func (mc *Multicast) Listen(listener ServiceHandler) {
-	mc.serviceHandlers = append(mc.serviceHandlers, listener)
+// Adds a listener for handling multicast service announcements.
+func (this serviceRegistry) Listen(listener *ServiceListener) {
+	this.serviceHandlers = append(this.serviceHandlers, listener)
 }
 
-/*
- * Start regularly publishing the services exposed by this instance.
- */
-func (mc Multicast) StartAdvertizer() {
-	if mc.advertizing {
-		return
+// Removes a listener for handling multicast service announcements.
+func (this serviceRegistry) Unlisten(listener *ServiceListener) {
+	index := util.IndexOf(this.serviceHandlers, listener)
+	if index >= 0 {
+		this.serviceHandlers = append(this.serviceHandlers[:index], this.serviceHandlers[index:]...)
 	}
-	mc.advertizing = true
-	if mc.providedServices != nil {
-		services := mc.providedServices()
-		if mc.verbose {
+}
+
+// Start regularly publishing the services exposed by this instance.
+func (this serviceRegistry) StartServiceCatalogue(serviceProvider *ServiceProvider, catalogs []string) {
+	panic("Not implemented: StartServiceCatalogue")
+}
+
+// Start regularly publishing the services exposed by this instance.
+func (this serviceRegistry) StartUPnP(serviceProvider *ServiceProvider, port int) {
+	if port == 0 {
+		port = 1900
+	}
+	assert.AssertNotNil(serviceProvider)
+	if this.advertizing {
+		this.advertizing = false
+	}
+	this.advertizing = true
+
+	if this.serviceProvider != nil {
+		services := this.serviceProvider
+		if this.verbose {
 			log.Infoln("[SSDP] advertizing services: ", services)
 		}
-		for _, service := range services {
+		for _, service := range (*this.serviceProvider).GetServices() {
 			usedAdvertisers := []string{}
 			advertizer, err := ssdp.Advertise(service.ST(), service.USN(), service.Location, service.Server,
 				service.MaxAge)
 			if err != nil {
 				log.Fatal(err)
 			}
-			mc.advertizers[service.USN()] = advertizer
+			this.advertizers[service.USN()] = advertizer
 			usedAdvertisers = append(usedAdvertisers, service.USN())
-			if mc.verbose {
+			if this.verbose {
 				advertizer.Alive()
 				log.Debug("[SSDP] Advertized service: {\n" +
 					"  AdType   : " + service.AdType + "\n" +
@@ -244,27 +260,27 @@ func (mc Multicast) StartAdvertizer() {
 			time.Sleep(11 * time.Second)
 		}
 	}
-	go mc.keepAliveLoop()
+	go this.keepAliveLoop()
 }
 
 /*
  * Stops advertizing any services exposed by this instance.
  */
-func (mc Multicast) StopAdvertisor() {
-	mc.advertizing = false
+func (this serviceRegistry) Stop() {
+	this.advertizing = false
 }
 
-func (mc Multicast) keepAliveLoop() {
-	for mc.advertizing {
-		if mc.providedServices != nil {
-			services := mc.providedServices()
-			if mc.verbose {
+func (this serviceRegistry) keepAliveLoop() {
+	for this.advertizing {
+		if this.serviceProvider != nil {
+			services := (*this.serviceProvider).GetServices()
+			if this.verbose {
 				log.Debug("[SSDP] sending keep alive for services ", services)
 			}
 
 			for _, service := range services {
 				usedAdvertisers := []string{}
-				advertizer := mc.advertizers[service.USN()]
+				advertizer := this.advertizers[service.USN()]
 				if &advertizer == nil {
 					var err error
 					advertizer, err = ssdp.Advertise(service.ST(), service.USN(), service.Location, service.Server,
@@ -272,10 +288,10 @@ func (mc Multicast) keepAliveLoop() {
 					if err != nil {
 						log.Fatal(err)
 					}
-					mc.advertizers[service.USN()] = advertizer
+					this.advertizers[service.USN()] = advertizer
 				}
 				usedAdvertisers = append(usedAdvertisers, service.USN())
-				if mc.verbose {
+				if this.verbose {
 					advertizer.Alive()
 					log.Debug("[SSDP] Advertized service: {\n" +
 						"  AdType   : " + service.AdType + "\n" +
@@ -286,17 +302,17 @@ func (mc Multicast) keepAliveLoop() {
 						"  Location : " + service.Location + "\n" +
 						"  MaxAge   : " + strconv.Itoa(service.MaxAge) + "\n}")
 				}
-				if len(usedAdvertisers) < len(mc.advertizers) {
+				if len(usedAdvertisers) < len(this.advertizers) {
 					log.Info("Some services have been removed, sending bye message...")
 					unusedAdvertisers := map[string]ssdp.Advertiser{}
-					for key, adv := range mc.advertizers {
+					for key, adv := range this.advertizers {
 						if !util.Exists(usedAdvertisers, key) {
 							unusedAdvertisers[key] = *adv
 						}
 					}
 					for key, adv := range unusedAdvertisers {
 						log.Info("Removing service: %s\n", key)
-						delete(mc.advertizers, key)
+						delete(this.advertizers, key)
 						adv.Bye()
 						adv.Close()
 					}
@@ -310,18 +326,18 @@ func (mc Multicast) keepAliveLoop() {
 /*
  * Test method to actively trigger a search request to the UPnP bus.
  */
-func (mc Multicast) triggerSearch() {
+func (this serviceRegistry) triggerSearch() {
 	for {
 		time.Sleep(5 * time.Second)
-		servicesFound, _ := ssdp.Search(mc.adType, 8, mc.localIp)
+		servicesFound, _ := ssdp.Search(this.adType, 8, this.localIp.String())
 		log.Debug("***** Services found: %s", servicesFound)
 		time.Sleep(10 * time.Second)
 	}
 
 }
 
-// Evakuates all adresses and takes the first non loopback IP presenbt.
-func GetInternalIP() string {
+// Evaluates all adresses and takes the first non loopback IP presenbt.
+func GetDefaultIP() *net.IP {
 	addresses, _ := net.InterfaceAddrs() //here your interface
 	var ip net.IP
 	for _, addr := range addresses {
@@ -334,16 +350,31 @@ func GetInternalIP() string {
 			}
 		}
 	}
-	if ip != nil {
-		return ip.String()
-	} else {
-		return ""
+	return &ip
+}
+
+func GetDefaultInterface() *net.Interface {
+	ifaces, _ := net.Interfaces() //here your interface
+
+	for _, iface := range ifaces {
+		adresses, _ := iface.Addrs()
+		for _, address := range adresses {
+			switch v := address.(type) {
+			case *net.IPNet:
+				if !v.IP.IsLoopback() {
+					if v.IP.To4() != nil { //Verify if IP is IPV4
+						return &iface
+					}
+				}
+			}
+		}
 	}
+	return nil
 }
 
 /*
  * Calculates a runtme info as used in the UPnP SERVER field.
  */
-func RuntimeInfo() string {
-	return runtime.GOOS + "/" + runtime.GOARCH + " UPnP/1.0 WinKube/1.0"
+func runtimeInfo() string {
+	return util.RuntimeInfo() + " UPnP/1.0 WinKube/1.0"
 }
