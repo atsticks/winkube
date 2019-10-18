@@ -1,27 +1,26 @@
 package webapp
 
-import "net/http"
+import (
+	"golang.org/x/text/message"
+	"net/http"
+)
 
 type Form struct {
 	Title       string
 	TextInputs  map[string]*TextInput
 	Options     map[string]*Options
 	FormActions map[string]*FormAction
-}
-
-type FormInput struct {
-	Name string
-	Help string
+	Messages    *message.Printer
 }
 
 type FormAction struct {
-	FormInput
-	value  string
-	method string
+	Name   string
+	Value  string
+	Method string
 }
 
 type TextInput struct {
-	FormInput
+	Name        string
 	PlaceHolder string
 	Value       string
 }
@@ -34,25 +33,22 @@ func (ti TextInput) read(req *http.Request) {
 }
 
 type Option struct {
-	FormInput
+	Name     string
 	Value    string
 	Selected bool
 }
 
 type Options struct {
-	FormInput
-	Selected []string
-	Entries  []Option
+	Entries []Option
 }
 
-func (op Options) read(req *http.Request) {
-	op.Selected = []string{}
+func (op Options) Read(req *http.Request) {
 	for _, option := range op.Entries {
 		values := req.MultipartForm.Value[option.Value]
 		if values != nil {
-			for _, v := range values {
-				op.Selected = append(op.Selected, v)
-			}
+			option.Selected = true
+		} else {
+			option.Selected = false
 		}
 	}
 }

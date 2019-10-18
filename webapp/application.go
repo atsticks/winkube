@@ -22,6 +22,8 @@ package webapp
 import (
 	"bytes"
 	"github.com/gorilla/sessions"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/text/language"
 	"net/http"
 	"net/url"
 	"strings"
@@ -33,10 +35,11 @@ type WebApplication struct {
 	Pages           map[string]*Page
 	Actions         map[string]*Action
 	sessionStore    *sessions.CookieStore
+	Translations    *Translations
 	rootContext     string
 }
 
-func Create(name string, rootContext string) *WebApplication {
+func Create(name string, rootContext string, defaulLanguage language.Tag) *WebApplication {
 	app := WebApplication{
 		Name:            name,
 		templateManager: NewTemplateManager(),
@@ -44,6 +47,7 @@ func Create(name string, rootContext string) *WebApplication {
 		Actions:         make(map[string]*Action),
 		rootContext:     rootContext,
 		sessionStore:    sessions.NewCookieStore([]byte("WinKubeIsSoCool")),
+		Translations:    CreateTranslations(defaulLanguage),
 	}
 	app.sessionStore.Options = &sessions.Options{
 		Path:     "/",
@@ -53,12 +57,20 @@ func Create(name string, rootContext string) *WebApplication {
 	return &app
 }
 
+func (app *WebApplication) LoadTranslations(lang language.Tag) *WebApplication {
+	app.Translations.load(lang)
+	return app
+}
+
 func (app *WebApplication) SetAction(name string, action Action) *WebApplication {
 	app.Actions[name] = &action
 	return app
 }
 
 func (app *WebApplication) HandleRequest(writer http.ResponseWriter, req *http.Request) {
+	// TODO Get language
+	langs := app.GetLanguages(req)
+	var language language.Tag = langs[0]
 	// get action...
 	// Get a session. Get() always returns a session, even if empty.
 	session, err := app.sessionStore.Get(req, "app-"+app.Name)
@@ -66,43 +78,64 @@ func (app *WebApplication) HandleRequest(writer http.ResponseWriter, req *http.R
 		http.Error(writer, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Save session at end
+	defer session.Save(req, writer)
+	var renderModel *RenderModel = &RenderModel{
+		Messages: app.Translations.Properties(language),
+	}
+	renderModel.Context = &RequestContext{
+		Application: app,
+		Request:     req,
+		Session:     session,
+		Language:    language,
+	}
+
 	var action *Action = app.findAction(req)
-	var actionResponse *ActionResponse
+
 	if action != nil {
-		context := &RequestContext{
-			Application: app,
-			Request:     req,
-		}
-		actionResponse := (*action).DoAction(context, writer)
+		actionResponse := (*action).DoAction(renderModel.Context, writer)
 		if actionResponse.NextPage != "" {
 			nextPage, found := app.Pages[actionResponse.NextPage]
 			if !found {
 				panic("Invalid page: " + actionResponse.NextPage)
 			}
-			renderedPage := nextPage.render(actionResponse.Model)
-			buf := bytes.NewBufferString(renderedPage)
-			writer.Write(buf.Bytes())
+			renderModel.Page = nextPage
+		}
+		if actionResponse.Model != nil {
+			renderModel.Data = actionResponse.Model
+		}
+		if actionResponse.complete {
 			return
 		}
 	}
-	// get page...
-	var page *Page = app.findPage(req)
-	if page != nil {
-		var pageModel *interface{}
-		if actionResponse != nil {
-			pageModel = actionResponse.Model
-		}
-		renderedPage := page.render(pageModel)
+	// no action, try to find page...
+	if renderModel.Page == nil {
+		renderModel.Page = app.findPage(req)
+	}
+	if renderModel.Page != nil {
+		renderedPage := renderModel.Page.render(renderModel)
 		buf := bytes.NewBufferString(renderedPage)
 		writer.Write(buf.Bytes())
 	}
-	// Save it before we write to the response/return from the handler.
-	err = session.Save(req, writer)
-	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
-	}
+}
 
+func (app *WebApplication) GetLanguages(req *http.Request) []language.Tag {
+	langHeader := req.Header.Get("Accept-Language")
+	if langHeader == "" {
+		return []language.Tag{app.Translations.DefaultLanguage}
+	}
+	var result []language.Tag
+	values := strings.Split(langHeader, ",")
+	for _, v := range values {
+		langs := strings.Split(v, ";")
+		tag, err := language.Parse(langs[0])
+		if err != nil {
+			logrus.Warn("Inpuarseable language tag in Accept-Language header or %s: %s", req, err)
+		} else {
+			result = append(result, tag)
+		}
+	}
+	return result
 }
 
 func (app *WebApplication) InitTemplates(templates map[string]string) *WebApplication {
@@ -176,4 +209,110 @@ func (app *WebApplication) findPage(req *http.Request) *Page {
 		}
 	}
 	return page
+}
+
+type RequestContext struct {
+	Application *WebApplication
+	Request     *http.Request
+	Attributes  map[string]interface{}
+	Session     *sessions.Session
+	Language    language.Tag
+}
+
+func (this RequestContext) GetParameter(key string) string {
+	param := this.GetQueryParameter(key)
+	if param == "" {
+		param = this.GetFormParameter(key)
+	}
+	//if(param == ""){
+	//	param = this.GetSessionAttribute(key).(string)
+	//}
+	//if(param == ""){
+	//	param = this.getRequestAttribute(key).(string)
+	//}
+	return param
+}
+
+func (this RequestContext) GetParameterOrDefault(key string, defaultValue string) string {
+	val := this.GetParameter(key)
+	if val == "" {
+		return defaultValue
+	}
+	return val
+}
+
+func (this RequestContext) GetFormParameters(key string) []string {
+	if this.Request.MultipartForm != nil {
+		return this.Request.MultipartForm.Value[key]
+	}
+	return nil
+}
+
+func (this RequestContext) GetFormParameter(key string) string {
+	params := this.GetFormParameters(key)
+	if params != nil && len(params) > 0 {
+		return params[0]
+	}
+	return ""
+}
+
+func (this RequestContext) GetQueryParameter(key string) string {
+	return this.GetQueryParameterWithDefault(key, "")
+}
+
+func (this RequestContext) GetQueryParameterWithDefault(key string, defaultValue string) string {
+	uri, err := url.ParseRequestURI(this.Request.RequestURI)
+	if err != nil {
+		panic("Cannot read request URI: " + this.Request.RequestURI + ", err: " + err.Error())
+	}
+	params, found := uri.Query()[key]
+	if found {
+		return params[0]
+	}
+	return defaultValue
+}
+
+func (this RequestContext) GetSessionAttribute(key string) interface{} {
+	return this.GetSessionAttributeWithDefault(key, nil)
+}
+
+func (this RequestContext) GetSessionAttributeWithDefault(key string, defaultValue interface{}) interface{} {
+	if this.Session != nil {
+		v, found := this.Session.Values[key]
+		if found {
+			return v.(string)
+		}
+	}
+	return defaultValue
+}
+
+func (this RequestContext) SetSessionAttribute(key string, value interface{}) interface{} {
+	if this.Session != nil {
+		v := this.Session.Values[key]
+		this.Session.Values[key] = value
+		return v
+	}
+	return nil
+}
+
+func (this RequestContext) getRequestAttribute(key string) interface{} {
+	return this.getRequestAttributeWithDefault(key, nil)
+}
+
+func (this RequestContext) getRequestAttributeWithDefault(key string, defaultValue interface{}) interface{} {
+	if this.Attributes != nil {
+		v := this.Attributes[key]
+		if v != nil {
+			return v
+		}
+	}
+	return defaultValue
+}
+func (this RequestContext) setRequestAttribute(key string, value interface{}) interface{} {
+	if this.Attributes != nil {
+		this.Attributes = make(map[string]interface{})
+	}
+	oldVal := this.Attributes[key]
+	this.Attributes[key] = value
+	return oldVal
 }

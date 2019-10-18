@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+
+    <title>{{index .Messages "winkube.setup.step2.title"}}</title>
+</head>
+<body>
+<div class="container">
+    <h1>{{index .Messages "winkube.setup.step2.title"}}</h1>
+    <p>{{ index .Messages "winkube.setup2.description"}}</p>
+    <p>{{ index .Messages "winkube.setup2.info"}}</p>
+    <form enctype="multipart/form-data">
+        {{ if .Data.Config.UseExistingCluster }}
+            <div class="form-group" id="basicconfig">
+                <h2>{{ index .Messages "network-basic-setup.label" }}</h2>
+                <p>{{ index .Messages "upnp.description" }}</p>
+                <input name="NetMulticastEnabled" type="checkbox" class="form-checkbox-input" id="net_multicast" checked="{{ .Data.Config.NetMulticastEnabled }}">
+                <label for="net_multicast">{{ index .Messages "multicast-enabled.label"}}</label>
+                <div class="form-group" id="master_config">
+                <p>{{ index .Messages "upnp.alternative.description"}}:</p>
+                    <label for="master_nodes">*{{ index .Messages "masters.label"}}</label>
+                    <input name="NetLookupMasters" type="text" class="form-control" id="master_nodes" aria-describedby="master_nodesHelp" placeholder="{{ index .Messages "masters.placeholder"}}"
+                    value="{{ .Data.Config.NetLookupMasters }}">
+                    <small id="master_nodesHelp" class="form-text text-muted">{{ index .Messages "masters.help"}}</small>
+                </div>
+            </div>
+            <div class="form-group" id="clusterconfig">
+                <h2>{{ index .Messages "cluster-config.label"}}</h2>
+                <label for="existingCluster">{{ index .Messages "cluster-choose.label"}}</label>
+                <select name="Cluster-ID" class="form-control" id="existingCluster">
+                    <option>Cluster 1</option>
+                    <option>Cluster 2</option>
+                </select>
+                <button type="submit" class="btn btn-secondary" formaction="step2_updateClusters" value="update_clusters">{{ index .Messages "update-clusters.label"}}</button>
+            </div>
+        {{else}}
+            <div class="form-group" id="basicconfig">
+                <h2>{{ index .Messages "network-basic-setup.label" }}</h2>
+                <p>{{ index .Messages "upnp.description" }}</p>
+                <input name="NetMulticastEnabled" type="checkbox" class="form-checkbox-input" id="net_multicast" checked="{{ .Data.Config.NetMulticastEnabled }}">
+                <label for="net_multicast">*{{ index .Messages "multicast-enabled.label"}}</label>
+                <br/>
+                <label for="upnp_port">*{{ index .Messages "upnp.port.label"}}</label>
+                <input name="Netupnp" type="text" class="form-control" id="upnp_port" aria-describedby="upnpHelp" placeholder="Enter the UPnP communication port"
+                       value="{{ .Data.Config.NetUPnPPort }}">
+                <br/>
+                <label for="existingCluster">{{ index .Messages "interface.label"}}</label>
+                <select class="form-control" id="existingCluster" name="NetInterface">
+                    {{ with .Data.Interfaces.Entries}}
+                    <option name="{{.Name}}" selected="{{.Selected}}">{{.Name}}</option>
+                    {{end}}
+                </select>
+            </div>
+            <div class="form-group" id="clusterconfig">
+                <h2>{{ index .Messages "cluster-config.label"}}</h2>
+                <p>{{ index .Messages "cluster-id.description"}}</p>
+                <label for="cluster_id">*{{ index .Messages "cluster-id.label"}}</label>
+                <input name="Cluster-ID" type="text" class="form-control" id="cluster_id" aria-describedby="clusterHelp" placeholder="{{ index .Messages "cluster-id.placeholder"}}"
+                       value="{{ .Data.Config.ClusterID }}">
+                <small id="clusterHelp" class="form-text text-muted">{{ index .Messages "cluster-id.help"}}</small>
+                <br/>
+                <label for="cluster_credentials">{{ index .Messages "cluster-credentials.label"}}</label>
+                <input name="Cluster-Crdentials" type="password" class="form-control" id="cluster_credentials" aria-describedby="clusterCredentialsHelp" placeholder="{{ index .Messages "cluster-credentials.placeholder"}}"
+                        value="{{ .Data.Config.ClusterCredentials }}">
+                <small id="ClusterCredentialsHelp" class="form-text text-muted">{{ index .Messages "cluster-credentials.help"}}</small>
+                <br/>
+                <label for="net_cidr">{{ index .Messages "cluster-cidr.label"}}</label>
+                <input name="Cluster-PodCIDR" type="text" class="form-control" id="net_cidr" aria-describedby="cidrHelp" placeholder="{{ index .Messages "cluster-cidr.placeholder"}}"
+                       value="{{ .Data.Config.ClusterPodCIDR }}">
+                <small id="cidrHelp" class="form-text text-muted">{{ index .Messages "cluster-cidr.help"}}</small>
+                <br/>
+                <label for="net_select">{{ index .Messages "network-vm-strategy.description"}}</label>
+                <div class="form-group form-check" id="net_select">
+                    <input name="ClusterNet-Type" type="radio" class="form-radio-input" id="net_select_bridged" value="Bridge" {{if .Data.Config.ClusterVMNet "Bridge" }}checked="true"{{end}} >
+                    <label class="form-check-label" for="net_select_bridged">{{ index .Messages "network-vm-strategy-bridged.label"}}</label>
+                    <small id="net_select_bridgedHelp" class="form-text text-muted">{{ index .Messages "network-vm-strategy-bridged.help"}}</small>
+                    <div class="form-group form-check" id="bridged_ip_range">
+                        <label for="net_cidr">{{ index .Messages "network-bridge-cidr.label"}}</label>
+                        <input name="NodeNetBridgeCIDR" type="text" class="form-control" id="bridged_ip_range" aria-describedby="cidrHelp" placeholder="{{ index .Messages "network-bridge-cidr.placeholder"}}" value="{{ .Data.Config.NodeNetBridgeCIDR}}">
+                    </div>
+                    <br/>
+                    <input name="ClusterNet-Type" type="radio" class="form-radio-input" id="net_select_nat" value="NAT" {{if .Data.Config.ClusterVMNet "NAT" }}checked="true"{{end}}>
+                    <label class="form-check-label" for="net_select_nat">{{ index .Messages "network-vm-strategy-nat.label"}}</label>
+                    <small id="net_select_bridgedHelp" class="form-text text-muted">{{ index .Messages "network-vm-strategy-nat.help"}}</small>
+                </div>
+            </div>
+        {{end}}
+        <div class="form-group" id="nodeconfig">
+            <h2>{{ index .Messages "node-config.label"}}</h2>
+            <p>{{ index .Messages "node-config.description"}}</p>
+            <label for="net_nodeip">{{ index .Messages "node-ip.label"}}</label>
+            <input name="NodeNetNodeIP" type="text" class="form-control" id="net_nodeip" aria-describedby="nodeHelp" placeholder="{{ index .Messages "node-ip.placeholder"}}"
+               value="{{ .Data.Config.NodeNetNodeIP }}">
+            <small id="nodeHelp" class="form-text text-muted">{{ index .Messages "node-ip.help"}}</small>
+            <br/>
+            <label for="masterselect">*{{ index .Messages "node-type.label"}}</label>
+            <div class="form-group form-check" id="masterselect">
+                <input name="NodeType" type="radio" class="form-radio-input" id="nodetype_master" value="MasterNode" {{if .Data.Config.NodeType eq "MasterNode" }}checked="true"{{end}}>
+                <label class="form-check-label" for="exampleCheck1">Master</label><br/>
+                <input name="NodeType" type="radio" class="form-radio-input" id="nodetype_worker" value="WorkerNode" {{if .Data.Config.NodeType eq "WorkerNode" }}checked="true"{{end}}>
+                <label class="form-check-label" for="exampleCheck1">Worker</label><br/>
+                <input name="NodeType" type="radio" class="form-radio-input" id="nodetype_monitor" value="MonitorNode" {{if .Data.Config.NodeType eq "MonitorNode" }}checked="true"{{end}}>
+                <label class="form-check-label" for="exampleCheck1">Monitor only</label>
+            </div>
+        </div>
+        <button name="action" type="submit" class="btn btn-primary" formaction="step1">{{ index .Messages "action.back-to-step-1.label"}}</button>
+        <button name="action" type="submit" class="btn btn-primary" formaction="save-step2">{{ index .Messages "action.continue-to-step-3.label"}}</button>
+    </form>
+</div>
+
+<!-- Optional JavaScript -->
+<!-- jQuery first, then Popper.js, then Bootstrap JS -->
+<script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+</body>
+</html>

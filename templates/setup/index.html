@@ -8,18 +8,16 @@
     <!-- Bootstrap CSS -->
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
 
-    <title>{{.Title}}</title>
+    <title>{{ index .Messages "winkube.title"}}</title>
 </head>
 <body>
+
 <div class="container">
-    <h1>{{.Title}}</h1>
-    {{ range .Descriptions }}
-    <p>{{.}}</p>
-    {{end}}
+    <h1>{{ index .Messages "winkube.title"}}</h1>
+    <p>{{ index .Messages "winkube.desc"}}</p>
+    <p>{{ index .Messages "winkube.desc2"}}</p>
     <form>
-        {{ range .Actions }}
-            <button type="submit" class="btn btn-primary" formaction=".Action">.Name</button>
-        {{end}}
+            <button type="submit" class="btn btn-primary" formaction="/setup/step1">{{ index .Messages "action.start-setup.label"}}</button>
     </form>
 </div>
 

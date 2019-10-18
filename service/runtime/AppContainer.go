@@ -1,10 +1,14 @@
 package runtime
 
 import (
+	"fmt"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"github.com/winkube/service/netutil"
 	"github.com/winkube/service/util"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
+	"golang.org/x/text/message/catalog"
 	"os"
 	"sync"
 	"time"
@@ -15,38 +19,60 @@ var once sync.Once
 
 const WINKUBE_ADTYPE = "winkube-service"
 
+type AppStatus int
+
+const (
+	APPSTATE_INITIALIZING AppStatus = iota
+	APPSTATE_INITIALIZED
+	APPSTATE_SETUP
+	APPSTATE_STARTING
+	APPSTATE_RUNNING
+	APPSTATE_IDLE
+	APPSTATE_ERROR
+)
+
 func Container() *AppContainer {
-	once.Do(func() {
-		container = start()
-	})
+	if container == nil {
+		Start()
+	}
 	return container
 }
 
-func start() *AppContainer {
-	c := AppContainer{
-		Logger: Logger(),
-		Config: Config(),
-		Router: Router(),
+func Start() {
+	container = &AppContainer{
+		Logger:            Logger(),
+		Config:            Config(),
+		Router:            Router(),
+		CurrentStatus:     APPSTATE_INITIALIZING,
+		RequiredAppStatus: APPSTATE_RUNNING,
 	}
-	c.ServiceProvider = ServiceProvider(c.Config)
-	c.ServiceRegistry = ServiceRegistry(&c.ServiceProvider, WINKUBE_ADTYPE)
-	c.ClusterManager = CreateClusterManager(&c.ServiceRegistry)
-	return &c
+	container.ServiceProvider = ServiceProvider(container.Config)
+	container.ServiceRegistry = ServiceRegistry(&container.ServiceProvider, WINKUBE_ADTYPE)
+	container.ClusterManager = CreateClusterManager(&container.ServiceRegistry)
+	container.CurrentStatus = APPSTATE_INITIALIZED
+	container.Logger.Info("WinKube is initialized, continue...")
 }
 
 type AppContainer struct {
-	Startup         time.Time
-	StartupDuration time.Duration
-	Logger          log.Logger
-	Config          *AppConfiguration
-	ServiceProvider netutil.ServiceProvider
-	Router          *mux.Router
-	ServiceRegistry netutil.ServiceRegistry
-	ClusterManager  ClusterManager
+	Startup           time.Time
+	StartupDuration   time.Duration
+	Logger            log.Logger
+	MessageCatalog    *catalog.Builder
+	Config            *AppConfiguration
+	ServiceProvider   netutil.ServiceProvider
+	Router            *mux.Router
+	ServiceRegistry   netutil.ServiceRegistry
+	ClusterManager    ClusterManager
+	CurrentStatus     AppStatus
+	RequiredAppStatus AppStatus
 }
 
 func (this AppContainer) Stats() string {
 	return "Container running (TODO startup and duration)"
+}
+
+func (this AppContainer) MessagePrinter(language language.Tag) *message.Printer {
+	return message.NewPrinter(language, message.Catalog(this.MessageCatalog))
 }
 
 type DefaultServiceProvider struct {
@@ -69,7 +95,7 @@ func Config() *AppConfiguration {
 	return CreateAppConfig("winkube.config")
 }
 func Logger() log.Logger {
-	log.Info("Initializing logging...")
+	fmt.Println("Initializing logging...")
 	//log.SetFormatter(&log.JSONFormatter{}) // Log as JSON instead of the default ASCII formatter.
 	log.SetFormatter(util.NewPlainFormatter())
 
@@ -86,7 +112,7 @@ func Logger() log.Logger {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Infoln("Working directory: " + dir)
+	fmt.Println("Working directory: " + dir)
 	return *log.StandardLogger()
 }
 func Router() *mux.Router {

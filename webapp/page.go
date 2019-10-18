@@ -20,36 +20,32 @@
 package webapp
 
 import (
+	"github.com/winkube/service/runtime"
 	"net/http"
 )
 
 type Page struct {
 	application WebApplication
-	Name        string
 	Template    string
-	Title       string
+	Name        string
 }
 
-type PageModel struct {
-	Page *Page
-	Data interface{}
+type RenderModel struct {
+	Page     *Page
+	Context  *RequestContext
+	Messages map[string]string
+	Data     map[string]interface{}
 }
 
-func (page *Page) render(context *interface{}) string {
-	return page.application.templateManager.executeTemplate(page.Template, PageModel{
-		Page: page,
-		Data: context,
-	})
-}
-
-type RequestContext struct {
-	Application *WebApplication
-	Request     *http.Request
+func (page *Page) render(model *RenderModel) string {
+	runtime.Container().Logger.Debug("Rendering page: " + page.Name)
+	model.Page = page
+	return page.application.templateManager.executeTemplate(page.Template, model)
 }
 
 type ActionResponse struct {
 	NextPage string
-	Model    *interface{}
+	Model    map[string]interface{}
 	complete bool
 }
 

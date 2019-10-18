@@ -61,25 +61,10 @@ func NodeNetType_Values() []NodeNetType {
 	}
 }
 
-var appConfiguration AppConfiguration
-
-func init() {
-	appConfiguration = *CreateAppConfig("winkube.config")
-}
-
-func Get() AppConfiguration {
-	return appConfiguration
-}
-
-func Set(configuration AppConfiguration) {
-
-	appConfiguration = configuration
-}
-
 type NetConfig struct {
 	NetMulticastEnabled bool
 	NetUPnPPort         int
-	NetLookupMasters    []string
+	NetLookupMasters    string
 	NetHostInterface    string `validate:"required"`
 	NetHostIP           string `validate:"required"`
 }
@@ -100,9 +85,10 @@ type NodeConfig struct {
 }
 
 type AppConfiguration struct {
-	NetConfig     `validate:"required"`
-	ClusterConfig `validate:"required"`
-	NodeConfig    `validate:"required"`
+	NetConfig          `validate:"required"`
+	ClusterConfig      `validate:"required"`
+	NodeConfig         `validate:"required"`
+	UseExistingCluster bool
 }
 
 func (conf AppConfiguration) Ready() bool {
@@ -111,10 +97,11 @@ func (conf AppConfiguration) Ready() bool {
 
 func CreateAppConfig(file string) *AppConfiguration {
 	appConfig := AppConfiguration{
-		NetConfig{NetMulticastEnabled: true,
-			NetUPnPPort:      1900,
-			NetHostInterface: netutil.GetDefaultInterface().Name,
-			NetHostIP:        netutil.GetDefaultIP().String(),
+		NetConfig{
+			NetMulticastEnabled: true,
+			NetUPnPPort:         1900,
+			NetHostInterface:    netutil.GetDefaultInterface().Name,
+			NetHostIP:           netutil.GetDefaultIP().String(),
 		},
 		ClusterConfig{
 			ClusterID:      "MyClusterID",
@@ -125,6 +112,7 @@ func CreateAppConfig(file string) *AppConfiguration {
 			NodeNetType:   NAT,
 			InstanceModel: *CreateDefaultInstanceModel(),
 		},
+		false,
 	}
 	props, err := util.ReadProperties("winkube.config")
 	if err != nil {

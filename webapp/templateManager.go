@@ -53,7 +53,7 @@ func (tm *TemplateManager) initTemplates(templates map[string]string) {
 func (tm *TemplateManager) readTemplate(name string, file string) *template.Template {
 	dat, err := ioutil.ReadFile(name)
 	if err != nil {
-		// TODO log err
+		log.Error("Error reading template(" + file + "): " + err.Error())
 		return nil
 	}
 	return tm.parseTemplate(name, string(dat))
@@ -62,7 +62,7 @@ func (tm *TemplateManager) readTemplate(name string, file string) *template.Temp
 func (tm *TemplateManager) parseTemplate(name string, templateString string) *template.Template {
 	t, err := template.New(name).Parse(templateString)
 	if err != nil {
-		// TODO log err
+		log.Error("Error in template(" + name + "): " + err.Error())
 		return nil
 	}
 	return t
