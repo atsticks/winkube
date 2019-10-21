@@ -15,17 +15,18 @@
     <h1>{{ index .Messages "winkube.setup.step1.title"}}</h1>
     <p>{{ index .Messages "winkube.setup1.description"}}</p>
     <p>{{ index .Messages "winkube.setup1.info"}}</p>
-    <form enctype="multipart/form-data">
+    <form method="post" enctype="multipart/form-data">
+        <input type="hidden" name="IsForm" value="true">
         <label for="masterselect">{{ index .Messages "setup-masterselect.label"}}</label>
         <div class="form-group form-check" id="masterselect">
-            <input type="radio" name="setup-mode" class="form-radio-input" id="setup_new_cluster" value="new_cluster" {{ if not .Data.Config.UseExistingCluster}}checked="true"{{end}}>
+            <input type="radio" name="setup-mode" class="form-radio-input" id="setup_new_cluster" value="new_cluster" {{ if not .Data.Config.Values.UseExistingCluster}}checked="true"{{end}}>
             <label class="form-check-label" for="setup_new_cluster">{{ index .Messages "setup-newcluster.label"}}</label>
             <br/>
-            <input type="radio" name="setup-mode" class="form-radio-input" id="setup_join_cluster" value="join_cluster" {{ if .Data.Config.UseExistingCluster}}checked="true"{{end}}>
+            <input type="radio" name="setup-mode" class="form-radio-input" id="setup_join_cluster" value="join_cluster" {{ if .Data.Config.Values.UseExistingCluster}}checked="true"{{end}}>
             <label class="form-check-label" for="setup_join_cluster">{{ index .Messages "setup-joincluster.label"}}</label>
         </div>
-        <button type="submit" class="btn btn-primary" formaction="..">{{ index .Messages "action.abort-setup.label"}}</button>
-        <button type="submit" class="btn btn-primary" formaction="save-step1">{{ index .Messages "action.continue-to-step-2.label"}}</button>
+        <button type="submit" class="btn btn-primary" formaction="index">{{ index .Messages "action.abort-setup.label"}}</button>
+        <button type="submit" class="btn btn-primary" formaction="step2">{{ index .Messages "action.continue-to-step-2.label"}}</button>
     </form>
 </div>
 

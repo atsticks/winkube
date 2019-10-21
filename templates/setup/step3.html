@@ -8,79 +8,111 @@
     <!-- Bootstrap CSS -->
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
 
-    <title>{{.Title}}</title>
+    <title>{{index .Messages "winkube.setup.step3.title"}}</title>
 </head>
 <body>
 <div class="container">
-    <h1>{{.Title}}</h1>
-    {{ range .Descriptions }}
-        <p>{{.}}</p>
-    {{end}}
+    <h1>{{index .Messages "winkube.setup.step3.title"}}</h1>
+    <p>{{ index .Messages "winkube.setup3.description"}}</p>
     <!-- Your configuration will be stored at <code>A/B/C</code> and all required work will be performed. Please check your configuration
     before starting the automatic setup procedure:</p> -->
-    <form enctype="multipart/form-data">
-        <h2>Setup Type</h2>
-        <div class="form-group row">
-            <label for="newCluster" class="col-sm-2 col-form-label">Create a new Cluster?</label>
-            <div class="col-sm-10">
-                <input type="text" readonly class="form-control-plaintext" id="newCluster" value="yes">
-            </div>
-        </div>
-        <h2>Networking</h2>
-        <div class="form-group row">
-            <label for="upnp" class="col-sm-2 col-form-label">Use UPnP/multicast?</label>
-            <div class="col-sm-10">
-                <input type="text" readonly class="form-control-plaintext" id="upnp" value="yes">
-            </div>
-            <label for="upnp_port" class="col-sm-2 col-form-label">UPnP port:</label>
-            <div class="col-sm-10">
-                <input type="text" readonly class="form-control-plaintext" id="upnp_port" value="1900">
-            </div>
-            <label for="lookup_masters" class="col-sm-2 col-form-label">Lookup Master Nodes:</label>
-            <div class="col-sm-10">
-                <input type="text" readonly class="form-control-plaintext" id="lookup_masters" value="N/A">
-            </div>
-            <label for="ip_interface" class="col-sm-2 col-form-label">IP/Interface on this machine to be used:</label>
-            <div class="col-sm-10">
-                <input type="text" readonly class="form-control-plaintext" id="ip_interface" value="192.168.1.4/eth0">
-            </div>
-        </div>
-        <h2>Cluster</h2>
-        <div class="form-group row">
-            <label for="cluster_id" class="col-sm-2 col-form-label">Cluster ID:</label>
-            <div class="col-sm-10">
-                <input type="text" readonly class="form-control-plaintext" id="cluster_id" value="yes">
-            </div>
-            <label for="cluster_credentials" class="col-sm-2 col-form-label">Cluster ID:</label>
-            <div class="col-sm-10">
-                <input type="text" readonly class="form-control-plaintext" id="cluster_credentials" value="MyCluster1">
-            </div>
-            <label for="pod_cidr" class="col-sm-2 col-form-label">POD CIDR:</label>
-            <div class="col-sm-10">
-                <input type="text" readonly class="form-control-plaintext" id="pod_cidr" value="172.16.0.0/16">
-            </div>
-            <label for="vm_network" class="col-sm-2 col-form-label">VM Network:</label>
-            <div class="col-sm-10">
-                <input type="text" readonly class="form-control-plaintext" id="vm_network" value="Bridged">
-            </div>
-            <label for="node_cidr" class="col-sm-2 col-form-label">Node CIDR (bridged):</label>
-            <div class="col-sm-10">
-                <input type="text" readonly class="form-control-plaintext" id="node_cidr" value="192.168.10.0/24">
-            </div>
-        </div>
-        <h2>Node</h2>
-        <div class="form-group row">
-            <label for="node_ip" class="col-sm-2 col-form-label">Explicit Node IP:</label>
-            <div class="col-sm-10">
-                <input type="text" readonly class="form-control-plaintext" id="node_ip" value="no">
-            </div>
-            <label for="node_type" class="col-sm-2 col-form-label">Node Type:</label>
-            <div class="col-sm-10">
-                <input type="text" readonly class="form-control-plaintext" id="node_type" value="Master">
-            </div>
-        </div>
-        <button type="submit" class="btn btn-primary" formaction="setup2_new.html">Back to Step 2</button>
-        <button type="submit" class="btn btn-primary" formaction="perform.html">Start Setup</button>
+    <form method="post" enctype="multipart/form-data">
+        <table class="table table-sm table-bordered table-striped table-hover">
+            <thead class="thead-dark">
+            <tr>
+                <th scope="col" colspan="2">{{ index .Messages "setup.type.title"}}</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr>
+                <th scope="row" width="50%">{{ index .Messages "create-new-cluster.label"}}</th>
+                <td><input type="text" readonly class="form-control-plaintext" id="newCluster" value="{{ if .Data.Config.Values.UseExistingCluster}}{{ .Messages.no}}{{ else}}{{ .Messages.yes}}{{end}}"></td>
+            </tr>
+            </tbody>
+        </table>
+        <table class="table table-sm table-bordered table-striped table-hover">
+            <thead class="thead-dark">
+            <tr>
+                <th scope="col" colspan="2">{{index .Messages "networking.title"}}</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr>
+                <th scope="row" width="50%">{{ index .Messages "multicast-enabled.label"}}</th>
+                <td><input type="text" readonly class="form-control-plaintext" id="upnp" value="{{ .Data.Config.Values.NetMulticastEnabled}}"></td>
+            </tr>
+            <tr>
+                <th scope="row">{{ index .Messages "upnp.port.label"}}</th>
+                <td><input type="text" readonly class="form-control-plaintext" id="upnp_port" value="{{ .Data.Config.Values.NetUPnPPort }}"></td>
+            </tr>
+            <tr>
+                <th scope="row">{{ index .Messages "masters.label"}}</th>
+                <td><input type="text" readonly class="form-control-plaintext" id="lookup_masters" value="{{ .Data.Config.Values.NetLookupMasters }}"></td>
+            </tr>
+            <tr>
+                <th scope="row">{{ index .Messages "network-bridge-cidr.label"}}</th>
+                <td><input type="text" readonly class="form-control-plaintext" id="ip_interface" value="{{ .Data.Config.Values.NodeNetBridgeCIDR}}"></td>
+            </tr>
+            <tr>
+                <th scope="row">{{ index .Messages "interface.label"}}</th>
+                <td><input type="text" readonly class="form-control-plaintext" name="NetHostInterface" id="interface" value="{{ .Data.Config.Values.NetHostInterface}}"></td>
+            </tr>
+            </tbody>
+        </table>
+        <table class="table table-sm table-bordered table-striped table-hover">
+            <thead class="thead-dark">
+            <tr>
+                <th scope="col" colspan="2">{{index .Messages "cluster.title"}}</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr>
+                <th scope="row" width="50%">{{ index .Messages "cluster-id.label"}}</th>
+                <td><input type="text" readonly class="form-control-plaintext" id="cluster_id" value="{{ .Data.Config.Values.ClusterID }}"></td>
+            </tr>
+            <tr>
+                <th scope="row">{{ index .Messages "cluster-credentials.label"}}</th>
+                <td><input type="password" readonly class="form-control-plaintext" id="upnp_port" value="{{ .Data.Config.Values.ClusterCredentials }}"></td>
+            </tr>
+            <tr>
+                <th scope="row">{{ index .Messages "cluster-cidr.label"}}</th>
+                <td><input type="text" readonly class="form-control-plaintext" id="lookup_masters" value="{{ .Data.Config.Values.ClusterPodCIDR }}"></td>
+            </tr>
+            <tr>
+                <th scope="row">{{ index .Messages "cluster-network.label"}}</th>
+                <td><input type="text" readonly class="form-control-plaintext" id="ip_interface" value="{{ .Data.Config.Values.ClusterVMNet}}"></td>
+            </tr>
+            <tr>
+                <th scope="row">{{ index .Messages "network-bridge-cidr.label"}}</th>
+                <td><input type="text" readonly class="form-control-plaintext" name="HostInterface" id="interface" value="{{ .Data.Config.Values.NodeNetBridgeCIDR}}"></td>
+            </tr>
+            </tbody>
+        </table>
+
+        <table class="table table-sm table-bordered table-striped table-hover">
+            <thead class="thead-dark">
+            <tr>
+                <th scope="col" colspan="2">{{index .Messages "node.title"}}</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr>
+                <th scope="row" width="50%">{{ index .Messages "node-ip.label"}}</th>
+                <td><input type="text" readonly class="form-control-plaintext" id="cluster_id" value="{{ .Data.Config.Values.NodeNetNodeIP }}"></td>
+            </tr>
+            <tr>
+                <th scope="row">{{ index .Messages "node-type.label"}}</th>
+                <td><input type="text" readonly class="form-control-plaintext" id="upnp_port" value="{{ .Data.Config.Values.NodeType }}"></td>
+            </tr>
+            <tr>
+                <th scope="row">{{ index .Messages "interface.label"}}</th>
+                <td><input type="text" readonly class="form-control-plaintext" name="NetHostInterface" value="{{ .Data.Config.Values.NetHostInterface }}"></td>
+            </tr>
+            </tbody>
+        </table>
+
+        <button type="submit" class="btn btn-primary" formaction="step2">{{ index .Messages "action.back-to-step-2.label"}}</button>
+        <button type="submit" class="btn btn-primary" formaction="install">{{index .Messages "action.start.label"}}</button>
     </form>
 </div>
 

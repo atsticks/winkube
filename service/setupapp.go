@@ -49,10 +49,104 @@ func SetupWebApplication(router *mux.Router) *webapp.WebApplication {
 	// Actions
 	setupWebapp.SetAction("/", &IndexAction{})
 	setupWebapp.SetAction("/step1", &Step1Action{})
-	setupWebapp.SetAction("/save-step1", &SaveStep1Action{})
-	setupWebapp.SetAction("/save-step2", &SaveStep2Action{})
+	setupWebapp.SetAction("/step2", &Step2Action{})
+	setupWebapp.SetAction("/step3", &Step3Action{})
 	setupWebapp.SetAction("/validate-config", &ValidateConfigAction{})
 	return setupWebapp
+}
+
+type ConfigBean struct {
+	Values *runtime.AppConfiguration
+}
+
+func readConfig(context *webapp.RequestContext) ConfigBean {
+	context.Request.ParseMultipartForm(32000)
+	bean := ConfigBean{
+		Values: runtime.Container().Config,
+	}
+	if context.GetParameter("UseExistingCluster") != "" {
+		runtime.Container().Config.UseExistingCluster =
+			ParseBool(context.GetParameter("UseExistingCluster"))
+	}
+	if context.GetParameter("Net-MulticastEnabled") != "" {
+		runtime.Container().Config.NetMulticastEnabled =
+			ParseBool(context.GetParameter("Net-MulticastEnabled"))
+	}
+	if context.GetParameter("Net-UPnPPort") != "" {
+		upnpPort, err := strconv.Atoi(context.GetParameter("Net-UPnPPort"))
+		if err != nil {
+			upnpPort = 1900
+		}
+		runtime.Container().Config.NetUPnPPort = upnpPort
+	}
+	if context.GetParameter("Net-LookupMasters") != "" {
+		runtime.Container().Config.NetLookupMasters =
+			context.GetParameter("Net-LookupMasters")
+	}
+	if context.GetParameter("Net-Interface") != "" {
+		runtime.Container().Config.NetHostInterface =
+			context.GetParameter("Net-Interface")
+	}
+	if context.GetParameter("Cluster-ID") != "" {
+		runtime.Container().Config.ClusterID =
+			context.GetParameter("Cluster-ID")
+	}
+	if context.GetParameter("Cluster-Credentials") != "" {
+		runtime.Container().Config.ClusterCredentials =
+			context.GetParameter("Cluster-Credentials")
+	}
+	if context.GetParameter("Cluster-PodCIDR") != "" {
+		runtime.Container().Config.ClusterPodCIDR =
+			context.GetParameter("Cluster-PodCIDR")
+	}
+	if context.GetParameter("Cluster-NetType") != "" {
+		runtime.Container().Config.ClusterVMNet =
+			context.GetParameter("Cluster-NetType")
+	}
+	if context.GetParameter("Node-NetBridgeCIDR") != "" {
+		runtime.Container().Config.NodeNetBridgeCIDR =
+			context.GetParameter("Node-NetBridgeCIDR")
+	}
+	if context.GetParameter("Node-NetNodeIP") != "" {
+		runtime.Container().Config.NodeNetNodeIP =
+			context.GetParameter("Node-NetNodeIP")
+	}
+	if context.GetParameter("Node-Type") != "" {
+		runtime.Container().Config.NodeType =
+			nodeTypeFromString(context.GetParameter("Node-Type"))
+	}
+	return bean
+}
+func nodeTypeFromString(nodeType string) runtime.NodeType {
+	switch nodeType {
+	case "WorkerNode":
+		return runtime.WorkerNode
+	case "MasterNode":
+		return runtime.MasterNode
+	case "MonitorNode":
+		return runtime.MonitorNode
+	default:
+		return runtime.Undefined
+	}
+}
+
+func (this ConfigBean) WorkerNode() bool {
+	return runtime.Container().Config.NodeType == runtime.WorkerNode
+}
+func (this ConfigBean) MasterNode() bool {
+	return runtime.Container().Config.NodeType == runtime.MasterNode
+}
+func (this ConfigBean) MonitorNode() bool {
+	return runtime.Container().Config.NodeType == runtime.MonitorNode
+}
+func (this ConfigBean) UndefinedNode() bool {
+	return runtime.Container().Config.NodeType == runtime.Undefined
+}
+func (this ConfigBean) UseBridgedNetwork() bool {
+	return runtime.Container().Config.ClusterVMNet == "Bridged"
+}
+func (this ConfigBean) UseNATNetwork() bool {
+	return runtime.Container().Config.ClusterVMNet == "NAT"
 }
 
 // Web action starting the setup process
@@ -72,7 +166,8 @@ type Step1Action struct{}
 func (a *Step1Action) DoAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	// Collect messages
 	data := make(map[string]interface{})
-	data["Config"] = *runtime.Container().Config
+	bean := readConfig(context)
+	data["Config"] = bean
 	return &webapp.ActionResponse{
 		NextPage: "step1",
 		Model:    data,
@@ -80,36 +175,14 @@ func (a *Step1Action) DoAction(context *webapp.RequestContext, writer http.Respo
 }
 
 // Web action continuing the setup process to step one
-type SaveStep1Action struct{}
+type Step2Action struct{}
 
-func (a SaveStep1Action) DoAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	joinCluster := context.GetQueryParameter("setup-mode") == "join_cluster"
-	runtime.Container().Config.UseExistingCluster = joinCluster
+func (a Step2Action) DoAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	bean := readConfig(context)
 	data := make(map[string]interface{})
-	data["Config"] = *runtime.Container().Config
-
-	ifaceOptions := interfaceOptions(runtime.Container().Config.NetHostInterface)
-	data["interfaces"] = ifaceOptions
-
-	runtime.Container().Config.NetMulticastEnabled, _ = strconv.ParseBool(context.GetParameter("NetMulticastEnabled"))
-	runtime.Container().Config.NetUPnPPort, _ = strconv.Atoi(context.GetParameter("NetUPnPPort"))
-	runtime.Container().Config.NetLookupMasters = context.GetParameter("NetLookupMasters")
-	runtime.Container().Config.ClusterID = context.GetParameter("ClusterID")
-	runtime.Container().Config.ClusterCredentials = context.GetParameter("ClusterCredentials")
-	runtime.Container().Config.ClusterPodCIDR = context.GetParameter("ClusterPodCIDR")
-	runtime.Container().Config.ClusterVMNet = context.GetParameter("ClusterVMNet")
-	runtime.Container().Config.NodeNetBridgeCIDR = context.GetParameter("NodeNetBridgeCIDR")
-	runtime.Container().Config.NodeNetNodeIP = context.GetParameter("NodeNetNodeIP")
-	switch context.GetParameter("NodeType") {
-	case "WorkerNode":
-		runtime.Container().Config.NodeType = runtime.WorkerNode
-	case "MasterNode":
-		runtime.Container().Config.NodeType = runtime.MasterNode
-	case "MonitorNode":
-		runtime.Container().Config.NodeType = runtime.MonitorNode
-	default:
-		runtime.Container().Config.NodeType = runtime.Undefined
-	}
+	data["Config"] = bean
+	data["Clusters"] = clusterOptions(runtime.Container().ClusterManager)
+	data["Interfaces"] = interfaceOptions(runtime.Container().Config.NetHostInterface)
 
 	return &webapp.ActionResponse{
 		NextPage: "step2",
@@ -117,18 +190,41 @@ func (a SaveStep1Action) DoAction(context *webapp.RequestContext, writer http.Re
 	}
 }
 
+func clusterOptions(clusterManager runtime.ClusterManager) webapp.Options {
+	clusterOptions := webapp.Options{}
+	clusterIds := clusterManager.GetClusterIDs()
+	// TODO remove this block
+	clusterIds = append(clusterIds, "ClusterID-1")
+	clusterIds = append(clusterIds, "ClusterID-2")
+	clusterIds = append(clusterIds, "ClusterID-3")
+	// TODO remove this block
+	for _, id := range clusterIds {
+		option := webapp.Option{
+			Name:     id,
+			Value:    id,
+			Selected: runtime.Container().Config.ClusterID == id,
+		}
+		clusterOptions.Entries = append(clusterOptions.Entries, option)
+	}
+	return clusterOptions
+}
+
 func interfaceOptions(selected string) webapp.Options {
-	interfacesOption := webapp.Options{}
+	ifCurrent := runtime.Container().Config.NetHostInterface
+	if ifCurrent == "" {
+		ifCurrent = "Ethernet"
+	}
+	interfacesOptions := webapp.Options{}
 	ifaces, _ := net.Interfaces() //here your interface
 	for _, iface := range ifaces {
 		option := webapp.Option{
 			Name:     iface.Name + "( " + iface.HardwareAddr.String() + ")" + getDisplayAddr(iface.Addrs()),
 			Value:    iface.Name,
-			Selected: runtime.Container().Config.NetHostInterface == iface.Name,
+			Selected: ifCurrent == iface.Name,
 		}
-		interfacesOption.Entries = append(interfacesOption.Entries, option)
+		interfacesOptions.Entries = append(interfacesOptions.Entries, option)
 	}
-	return interfacesOption
+	return interfacesOptions
 }
 
 func getDisplayAddr(addresses []net.Addr, err error) string {
@@ -151,15 +247,30 @@ func getDisplayAddr(addresses []net.Addr, err error) string {
 }
 
 // Web action continuing the setup process to step two
-type SaveStep2Action struct{}
+type Step3Action struct{}
 
-func (a SaveStep2Action) DoAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+func (a Step3Action) DoAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	// Collect messages
 	data := make(map[string]interface{})
-	data["Config"] = *runtime.Container().Config
+	bean := readConfig(context)
+	data["Config"] = bean
 	return &webapp.ActionResponse{
 		NextPage: "step3",
 		Model:    data,
+	}
+}
+
+// ParseBool returns the boolean value represented by the string.
+// It accepts 1, t, T, TRUE, true, True, 0, f, F, FALSE, false, False.
+// Any other value returns an error.
+func ParseBool(str string) bool {
+	switch str {
+	case "1", "t", "T", "true", "TRUE", "True", "on", "On", "ON":
+		return true
+	case "0", "f", "F", "false", "FALSE", "False", "off", "Off", "OFF":
+		return false
+	default:
+		return false
 	}
 }
 

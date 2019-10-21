@@ -105,12 +105,13 @@ func CreateAppConfig(file string) *AppConfiguration {
 		},
 		ClusterConfig{
 			ClusterID:      "MyClusterID",
-			ClusterPodCIDR: "",
-			ClusterVMNet:   "",
+			ClusterPodCIDR: "172.16.0.0/16",
+			ClusterVMNet:   "NAT",
 		},
 		NodeConfig{
-			NodeNetType:   NAT,
-			InstanceModel: *CreateDefaultInstanceModel(),
+			NodeNetType:       NAT,
+			NodeNetBridgeCIDR: "192.168.10.0/24",
+			InstanceModel:     *CreateDefaultInstanceModel(),
 		},
 		false,
 	}
