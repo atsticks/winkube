@@ -20,8 +20,8 @@ package main
 
 import (
 	"fmt"
+	"github.com/winkube/util"
 	"log"
-	"os"
 	"os/exec"
 )
 
@@ -68,21 +68,11 @@ func install(declaredPackage string, command string, args string) {
 
 func check(command string) bool {
 	fmt.Printf("Checking if %v is available...\n", command)
-	if fileExists(command) {
+	if util.FileExists(command) {
 		return true
 	}
 	cmd := exec.Command("where", command)
 	err := cmd.Run()
 
 	return err == nil
-}
-
-// Exists reports whether the named file or directory exists.
-func fileExists(name string) bool {
-	if _, err := os.Stat(name); err != nil {
-		if os.IsNotExist(err) {
-			return false
-		}
-	}
-	return true
 }

@@ -23,6 +23,7 @@ import (
 	"bytes"
 	"github.com/gorilla/sessions"
 	"github.com/sirupsen/logrus"
+	"github.com/winkube/util"
 	"golang.org/x/text/language"
 	"net/http"
 	"net/url"
@@ -31,24 +32,29 @@ import (
 
 type WebApplication struct {
 	Name            string
-	templateManager *TemplateManager
+	templateManager *util.TemplateManager
 	Pages           map[string]*Page
-	Actions         map[string]*Action
+	Actions         map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse
 	sessionStore    *sessions.CookieStore
 	Translations    *Translations
 	rootContext     string
 }
 
-func Create(name string, rootContext string, defaulLanguage language.Tag) *WebApplication {
+func CreateWebApp(name string, rootContext string, defaulLanguage language.Tag) *WebApplication {
 	app := WebApplication{
 		Name:            name,
-		templateManager: NewTemplateManager(),
+		templateManager: util.CreateTemplateManager(),
 		Pages:           make(map[string]*Page),
-		Actions:         make(map[string]*Action),
+		Actions:         make(map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse),
 		rootContext:     rootContext,
 		sessionStore:    sessions.NewCookieStore([]byte("WinKubeIsSoCool")),
 		Translations:    CreateTranslations(defaulLanguage),
 	}
+	app.AddPage(&Page{
+		application: app,
+		Template:    "templates/_redirect.html",
+		Name:        "_redirect",
+	})
 	app.sessionStore.Options = &sessions.Options{
 		Path:     "/",
 		MaxAge:   1000 * 50 * 30, // 30 minutes
@@ -62,7 +68,7 @@ func (app *WebApplication) LoadTranslations(lang language.Tag) *WebApplication {
 	return app
 }
 
-func (app *WebApplication) SetAction(name string, action Action) *WebApplication {
+func (app *WebApplication) SetAction(name string, action func(req *RequestContext, writer http.ResponseWriter) *ActionResponse) *WebApplication {
 	app.Actions[name] = &action
 	return app
 }
@@ -90,10 +96,10 @@ func (app *WebApplication) HandleRequest(writer http.ResponseWriter, req *http.R
 		Language:    language,
 	}
 
-	var action *Action = app.findAction(req)
+	var action *func(req *RequestContext, writer http.ResponseWriter) *ActionResponse = app.findAction(req)
 
 	if action != nil {
-		actionResponse := (*action).DoAction(renderModel.Context, writer)
+		actionResponse := (*action)(renderModel.Context, writer)
 		if actionResponse.NextPage != "" {
 			nextPage, found := app.Pages[actionResponse.NextPage]
 			if !found {
@@ -139,23 +145,23 @@ func (app *WebApplication) GetLanguages(req *http.Request) []language.Tag {
 }
 
 func (app *WebApplication) InitTemplates(templates map[string]string) *WebApplication {
-	app.templateManager.initTemplates(templates)
+	app.templateManager.InitTemplates(templates)
 	return app
 }
 
 func (app *WebApplication) AddPage(page *Page) *WebApplication {
 	// Check for existing template
 	if app.templateManager.Templates[page.Template] == nil {
-		app.templateManager.initTemplate(page.Template)
+		app.templateManager.InitTemplate(page.Template)
 	}
 	page.application = *app
 	app.Pages[page.Name] = page
 	return app
 }
 
-func (app *WebApplication) findAction(req *http.Request) *Action {
+func (app *WebApplication) findAction(req *http.Request) *func(req *RequestContext, writer http.ResponseWriter) *ActionResponse {
 	uri, _ := url.ParseRequestURI(req.RequestURI)
-	var action *Action
+	var action *func(req *RequestContext, writer http.ResponseWriter) *ActionResponse
 	actionName, found := uri.Query()["action"]
 	if found {
 		action = app.Actions[actionName[0]]
@@ -209,6 +215,10 @@ func (app *WebApplication) findPage(req *http.Request) *Page {
 		}
 	}
 	return page
+}
+
+func (app *WebApplication) ExecuteTemplate(template string, model *RenderModel) string {
+	return app.templateManager.ExecuteTemplate(template, model)
 }
 
 type RequestContext struct {

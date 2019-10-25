@@ -60,7 +60,7 @@
                         <option name="{{.Name}}" {{if .Selected}}selected {{end}}value="{{ .Value}}">{{.Name}}</option>
                     {{end}}
                 </select>
-                <button type="submit" class="btn btn-secondary" formaction="step2_updateClusters" value="update_clusters">{{ index .Messages "update-clusters.label"}}</button>
+                <button type="submit" class="btn btn-secondary" formaction="step2" value="update_clusters">{{ index .Messages "update-clusters.label"}}</button>
             </div>
         {{else}}
             <div class="form-group" id="basicconfig">
@@ -102,6 +102,15 @@
                 <input name="Cluster-PodCIDR" type="text" class="form-control" id="net_cidr" aria-describedby="cidrHelp" placeholder="{{ index .Messages "cluster-cidr.placeholder"}}"
                        value="{{ .Data.Config.Values.ClusterPodCIDR }}">
                 <small id="cidrHelp" class="form-text text-muted">{{ index .Messages "cluster-cidr.help"}}</small>
+                <label for="service_cidr">{{ index .Messages "cluster-service-cidr.label"}}</label>
+                <input name="Cluster-ServiceCIDR" type="text" class="form-control" id="service_cidr" aria-describedby="serviceCidrHelp" placeholder="{{ index .Messages "cluster-service-cidr.placeholder"}}"
+                       value="{{ .Data.Config.Values.ClusterServiceCIDR }}">
+                <small id="serviceCidrHelp" class="form-text text-muted">{{ index .Messages "cluster-service-cidr.help"}}</small>
+
+                <label for="service_domain">{{ index .Messages "cluster-service-domain.label"}}</label>
+                <input name="Cluster-ServiceDomain" type="text" class="form-control" id="service_domain" aria-describedby="serviceDomainHelp" placeholder="{{ index .Messages "cluster-service-domain.placeholder"}}"
+                       value="{{ .Data.Config.Values.ClusterServiceDomain }}">
+                <small id="serviceDomainHelp" class="form-text text-muted">{{ index .Messages "cluster-service-domain.help"}}</small>
                 <br/>
                 <label for="net_select">{{ index .Messages "network-vm-strategy.description"}}</label>
                 <div class="form-group form-check" id="net_select">
@@ -116,6 +125,11 @@
                     <input name="Cluster-NetType" type="radio" class="form-radio-input" id="net_select_nat" value="NAT" {{if .Data.Config.UseNATNetwork }}checked="true"{{end}}>
                     <label class="form-check-label" for="net_select_nat">{{ index .Messages "network-vm-strategy-nat.label"}}</label>
                     <small id="net_select_bridgedHelp" class="form-text text-muted">{{ index .Messages "network-vm-strategy-nat.help"}}</small>
+
+                    <label for="masterApiPort">{{ index .Messages "cluster-master-api-port.label"}}</label>
+                    <input name="Cluster-MasterApiPort" type="text" class="form-control" id="masterApiPort" aria-describedby="masterApiPortHelp" placeholder="{{ index .Messages "cluster-master-api-port.placeholder"}}"
+                           value="{{ .Data.Config.Values.ClusterMasterApiPort }}">
+                    <small id="masterApiPortHelp" class="form-text text-muted">{{ index .Messages "cluster-master-api-port.help"}}</small>
                 </div>
             </div>
         {{end}}
@@ -136,6 +150,37 @@
                 <input name="Node-Type" type="radio" class="form-radio-input" id="nodetype_monitor" value="MonitorNode" {{if .Data.Config.MonitorNode }}checked="true"{{end}}>
                 <label class="form-check-label" for="exampleCheck1">{{ index .Messages "node-monitor.label"}}</label>
             </div>
+
+            <label for="net_nodeipr">{{ index .Messages "node-ip.label"}}</label>
+            <input name="Node-NetNodeIP" type="text" class="form-control" id="net_nodeip" aria-describedby="nodeIPHelp" placeholder="{{ index .Messages "node-ip.placeholder"}}"
+                   value="{{ .Data.Config.Values.NodeNetNodeIP }}">
+            <small id="nodeIPHelp" class="form-text text-muted">{{ index .Messages "node-ip.help"}}</small>
+
+            <label for="net_nodename">{{ index .Messages "node-name.label"}}</label>
+            <input name="Node-Name" type="text" class="form-control" id="net_nodename" aria-describedby="nodeNameHelp" placeholder="{{ index .Messages "node-name.placeholder"}}"
+                   value="{{ .Data.Config.Values.NodeName }}">
+            <small id="nodeNameHelp" class="form-text text-muted">{{ index .Messages "node-name.help"}}</small>
+
+            <label for="net_nodeimage">{{ index .Messages "node-image.label"}}</label>
+            <input name="Node-Box" type="text" class="form-control" id="net_nodeimage" aria-describedby="nodeImageHelp" placeholder="{{ index .Messages "node-image.placeholder"}}"
+                   value="{{ .Data.Config.Values.NodeBox }}">
+            <small id="nodeImageHelp" class="form-text text-muted">{{ index .Messages "node-image.help"}}</small>
+
+            <label for="net_nodeboxversion">{{ index .Messages "node-boxversion.label"}}</label>
+            <input name="Node-BoxVersion" type="text" class="form-control" id="net_nodeBoxVersion" aria-describedby="nodeBoxVersionHelp" placeholder="{{ index .Messages "node-boxversion.placeholder"}}"
+                   value="{{ .Data.Config.Values.NodeBoxVersion }}">
+            <small id="nodeBoxVersionHelp" class="form-text text-muted">{{ index .Messages "node-boxversion.help"}}</small>
+
+            <label for="net">{{ index .Messages "node-memory.label"}}</label>
+            <input name="Node-Memory" type="text" class="form-control" id="net_nodememory" aria-describedby="nodeMemoryHelp" placeholder="{{ index .Messages "node-memory.placeholder"}}"
+                   value="{{ .Data.Config.Values.NodeMemory }}">
+            <small id="nodeMemoryHelp" class="form-text text-muted">{{ index .Messages "node-memory.help"}}</small>
+
+            <label for="net">{{ index .Messages "node-cpu.label"}}</label>
+            <input name="Node-CPU" type="text" class="form-control" id="net_nodecpu" aria-describedby="nodeCPUHelp" placeholder="{{ index .Messages "node-cpu.placeholder"}}"
+                   value="{{ .Data.Config.Values.NodeCPU }}">
+            <small id="nodeMemoryHelp" class="form-text text-muted">{{ index .Messages "node-cpu.help"}}</small>
+
         </div>
         <button name="action" type="submit" class="btn btn-primary" formaction="step1">{{ index .Messages "action.back-to-step-1.label"}}</button>
         <button name="action" type="submit" class="btn btn-primary" formaction="step3">{{ index .Messages "action.continue-to-step-3.label"}}</button>

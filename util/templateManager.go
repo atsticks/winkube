@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package webapp
+package util
 
 import (
 	log "github.com/sirupsen/logrus"
@@ -25,13 +25,13 @@ type TemplateManager struct {
 	Templates map[string]*template.Template
 }
 
-func NewTemplateManager() *TemplateManager {
+func CreateTemplateManager() *TemplateManager {
 	return &TemplateManager{
 		Templates: make(map[string]*template.Template),
 	}
 }
 
-func (tm *TemplateManager) initTemplate(template string) {
+func (tm TemplateManager) InitTemplate(template string) {
 	t := tm.readTemplate(template, template)
 	if t == nil {
 		log.Error("Cannot read template " + template)
@@ -40,7 +40,7 @@ func (tm *TemplateManager) initTemplate(template string) {
 	tm.Templates[template] = t
 }
 
-func (tm *TemplateManager) initTemplates(templates map[string]string) {
+func (tm TemplateManager) InitTemplates(templates map[string]string) {
 	for key, value := range templates {
 		t := tm.readTemplate(key, value)
 		if t == nil {
@@ -50,8 +50,8 @@ func (tm *TemplateManager) initTemplates(templates map[string]string) {
 	}
 }
 
-func (tm *TemplateManager) readTemplate(name string, file string) *template.Template {
-	dat, err := ioutil.ReadFile(name)
+func (tm TemplateManager) readTemplate(name string, file string) *template.Template {
+	dat, err := ioutil.ReadFile(file)
 	if err != nil {
 		log.Error("Error reading template(" + file + "): " + err.Error())
 		return nil
@@ -59,7 +59,7 @@ func (tm *TemplateManager) readTemplate(name string, file string) *template.Temp
 	return tm.parseTemplate(name, string(dat))
 }
 
-func (tm *TemplateManager) parseTemplate(name string, templateString string) *template.Template {
+func (tm TemplateManager) parseTemplate(name string, templateString string) *template.Template {
 	t, err := template.New(name).Parse(templateString)
 	if err != nil {
 		log.Error("Error in template(" + name + "): " + err.Error())
@@ -68,7 +68,7 @@ func (tm *TemplateManager) parseTemplate(name string, templateString string) *te
 	return t
 }
 
-func (tm *TemplateManager) executeTemplate(templateName string, context interface{}) string {
+func (tm TemplateManager) ExecuteTemplate(templateName string, context interface{}) string {
 	var sw = &strings.Builder{}
 	template := tm.Templates[templateName]
 	if template == nil {

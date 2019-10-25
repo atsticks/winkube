@@ -1,5 +1,4 @@
 <!doctype html>
-<html lang="en">
 <!--
 // Copyright 2019 Anatole Tresch
 //
@@ -15,34 +14,48 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 -->
+<html lang="en">
 <head>
     <!-- Required meta tags -->
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta http-equiv="refresh" content="2">
 
     <!-- Bootstrap CSS -->
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
 
-    <title>{{ index .Messages "winkube.setup.step1.title"}}</title>
+    <title>{{ index .Messages "winkube.title"}}</title>
 </head>
 <body>
+
 <div class="container">
-    <h1>{{ index .Messages "winkube.setup.step1.title"}}</h1>
-    <p>{{ index .Messages "winkube.setup1.description"}}</p>
-    <p>{{ index .Messages "winkube.setup1.info"}}</p>
-    <form method="post" enctype="multipart/form-data">
-        <input type="hidden" name="IsForm" value="true">
-        <label for="masterselect">{{ index .Messages "setup-masterselect.label"}}</label>
-        <div class="form-group form-check" id="masterselect">
-            <input type="radio" name="UseExistingCluster" class="form-radio-input" id="setup_new_cluster" value="false" {{ if not .Data.Config.Values.UseExistingCluster}}checked="true"{{end}}>
-            <label class="form-check-label" for="setup_new_cluster">{{ index .Messages "setup-newcluster.label"}}</label>
-            <br/>
-            <input type="radio" name="UseExistingCluster" class="form-radio-input" id="setup_join_cluster" value="true" {{ if .Data.Config.Values.UseExistingCluster}}checked="true"{{end}}>
-            <label class="form-check-label" for="setup_join_cluster">{{ index .Messages "setup-joincluster.label"}}</label>
-        </div>
-        <button type="submit" class="btn btn-primary" formaction="index">{{ index .Messages "action.abort-setup.label"}}</button>
-        <button type="submit" class="btn btn-primary" formaction="step2">{{ index .Messages "action.continue-to-step-2.label"}}</button>
-    </form>
+    <h1>Running WinKube Tasks</h1>
+    <a href="actions-completed" class="btn btn-info" role="button">Show Completed</a> <a href="/" class="btn btn-info" role="button">Continue...</a>
+    <table class="table table-sm table-bordered table-striped table-hover">
+        <thead class="thead-dark">
+        <tr>
+            <th scope="col" width="170px">Command</th>
+            {{/*            <th scope="col">Description</th>*/}}
+            <th scope="col" width="300px">Id</th>
+            <th scope="col" width="120px">Status</th>
+            <th scope="col" width="300px">Started/Completed</th>
+            <th scope="col">Log</th>
+        </tr>
+        </thead>
+        <tbody>
+        {{ range $a := .Data.actions}}
+            <tr>
+                <th scope="row">{{ $a.Command}}</th>
+{{/*                <td scope="row">{{ $a.Description}}</td>*/}}
+                <td scope="row">{{ $a.Id}}</td>
+                <td width="400px"><input type="text" readonly class="form-control-plaintext" value="{{ $a.Status}}"></td>
+                <td width="300px"><input type="text" readonly class="form-control-plaintext" value="{{ $a.StartedAt}}"><br/>
+                    <input type="text" readonly class="form-control-plaintext" value="{{ $a.FinishedAt}}"></td>
+                <td width="100px"><a href="actionlog?actionId={{$a.Id}}&backAction=actions" class="btn btn-info" role="button">Show Log</a></td>
+            </tr>
+        {{end}}
+        </tbody>
+    </table>
 </div>
 
 <!-- Optional JavaScript -->

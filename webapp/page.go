@@ -20,8 +20,7 @@
 package webapp
 
 import (
-	"github.com/winkube/service/runtime"
-	"net/http"
+	"github.com/sirupsen/logrus"
 )
 
 type Page struct {
@@ -34,21 +33,18 @@ type RenderModel struct {
 	Page     *Page
 	Context  *RequestContext
 	Messages map[string]string
-	Data     map[string]interface{}
+	Data     interface{}
 }
 
 func (page *Page) render(model *RenderModel) string {
-	runtime.Container().Logger.Debug("Rendering page: " + page.Name)
+	logrus.Debug("Rendering page: " + page.Name)
 	model.Page = page
-	return page.application.templateManager.executeTemplate(page.Template, model)
+	return page.application.ExecuteTemplate(page.Template, model)
 }
 
 type ActionResponse struct {
 	NextPage string
-	Model    map[string]interface{}
+	Forward  string
+	Model    interface{}
 	complete bool
-}
-
-type Action interface {
-	DoAction(req *RequestContext, writer http.ResponseWriter) *ActionResponse
 }

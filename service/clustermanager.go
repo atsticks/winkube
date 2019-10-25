@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package runtime
+package service
 
 import (
 	"errors"
@@ -35,12 +35,12 @@ type ClusterManager interface {
 	GetClusterIDs() []string
 }
 
-func CreateClusterManager(serviceRegistry *netutil.ServiceRegistry) ClusterManager {
-	cm := &clusterManager{
+func CreateClusterManager(serviceRegistry *netutil.ServiceRegistry) *ClusterManager {
+	var cm ClusterManager = clusterManager{
 		clusters:        make(map[string]*Cluster),
 		serviceRegistry: serviceRegistry,
 	}
-	return cm
+	return &cm
 }
 
 type clusterManager struct {

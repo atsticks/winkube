@@ -17,14 +17,18 @@ module github.com/winkube
 go 1.13
 
 require (
+	github.com/go-playground/locales v0.13.0 // indirect
+	github.com/go-playground/universal-translator v0.16.0 // indirect
 	github.com/google/uuid v1.1.1
 	github.com/gorilla/mux v1.7.3
 	github.com/gorilla/sessions v1.2.0
 	github.com/koron/go-ssdp v0.0.0-20180514024734-4a0ed625a78b
+	github.com/leodido/go-urn v1.2.0 // indirect
 	github.com/magiconair/properties v1.8.1
 	github.com/sirupsen/logrus v1.4.2
-	github.com/stretchr/testify v1.3.0 // indirect
 	golang.org/x/net v0.0.0-20191007182048-72f939374954 // indirect
 	golang.org/x/sys v0.0.0-20190904154756-749cb33beabd // indirect
-	golang.org/x/text v0.3.0
+	golang.org/x/text v0.3.2
+	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
+	gopkg.in/go-playground/validator.v9 v9.30.0
 )

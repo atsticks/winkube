@@ -16,8 +16,12 @@ package util
 
 import (
 	"bufio"
+	"bytes"
+	"fmt"
 	log "github.com/sirupsen/logrus"
+	"io"
 	"os"
+	"os/exec"
 	"reflect"
 	"runtime"
 	"strings"
@@ -79,6 +83,83 @@ func Keys(mymap map[interface{}]interface{}) []interface{} {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// Exists reports whether the named file or directory exists.
+func FileExists(name string) bool {
+	if _, err := os.Stat(name); err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+	}
+	return true
+}
+
+/**
+ * Runs an OS command.
+ */
+func RunCommand(description string, command string, args string) (*exec.Cmd, io.ReadCloser, error) {
+	fmt.Printf(description)
+	cmd := exec.Command(command, args)
+	cmdReader, err := cmd.StdoutPipe()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error creating StdoutPipe for Cmd: "+command, err)
+	}
+	err = cmd.Start()
+	return cmd, cmdReader, err
+}
+
+func FollowCommandWait(cmdReader io.ReadCloser, print bool) []byte {
+	scanner := bufio.NewScanner(cmdReader)
+	var b bytes.Buffer
+	for scanner.Scan() {
+		b.WriteString(scanner.Text())
+	}
+	return b.Bytes()
+}
+
+func FollowCommandAsynch(cmdReader io.ReadCloser, buffer bytes.Buffer, print bool) {
+	scanner := bufio.NewScanner(cmdReader)
+	go func() {
+		for scanner.Scan() {
+			text := scanner.Text()
+			buffer.WriteString(text)
+			if print {
+				fmt.Printf("\t > %s\n", text)
+			}
+		}
+	}()
+}
+
+func PanicIfError(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+// Checks if an error occurred and logs any with the given area
+// using the current logger on ERROR level.
+// Returns true, if no error is present
+func CheckAndLogError(area string, err error) bool {
+	if err != nil {
+		log.Error(area + ": " + err.Error())
+		return false
+	}
+	return true
+}
+
+// ParseBool returns the boolean value represented by the string.
+// It accepts 1, t, T, TRUE, true, True, 0, f, F, FALSE, false, False.
+// Any other value returns an error.
+func ParseBool(str string) bool {
+	switch str {
+	case "1", "t", "T", "true", "TRUE", "True", "on", "On", "ON":
+		return true
+	case "0", "f", "F", "false", "FALSE", "False", "off", "Off", "OFF":
+		return false
+	default:
+		return false
+	}
 }
 
 // Calculates a runtme info with OS/Architecture

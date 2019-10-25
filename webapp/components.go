@@ -15,7 +15,7 @@
 package webapp
 
 import (
-	"github.com/winkube/service/runtime"
+	"github.com/sirupsen/logrus"
 	"html"
 	"strings"
 )
@@ -45,7 +45,7 @@ func renderChildren(children []interface{}) string {
 		case UIComponent:
 			b.WriteString(v.(UIComponent).render())
 		default:
-			runtime.Container().Logger.Warn("Ignoring non UIComponent type in child list.")
+			logrus.Warn("Ignoring non UIComponent type in child list.")
 		}
 	}
 	return b.String()

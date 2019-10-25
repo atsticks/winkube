@@ -24,8 +24,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/winkube/service"
 	"github.com/winkube/service/netutil"
-	"github.com/winkube/service/runtime"
-	"github.com/winkube/service/util"
+	util2 "github.com/winkube/util"
 	"net/http"
 	"os/exec"
 	"strconv"
@@ -34,9 +33,9 @@ import (
 )
 
 func startup() {
-	http.Handle("/", runtime.Container().Router)
+	http.Handle("/", service.Container().Router)
 	http.ListenAndServe("0.0.0.0:8080", nil)
-	if !runtime.Container().Config.Ready() {
+	if !service.Container().Config.Ready() {
 		explore("/setup")
 	}
 	go manageState()
@@ -44,35 +43,35 @@ func startup() {
 
 func manageState() {
 	for {
-		if runtime.Container().RequiredAppStatus != runtime.Container().CurrentStatus {
-			switch runtime.Container().RequiredAppStatus {
-			case runtime.APPSTATE_SETUP:
-				if runtime.Container().CurrentStatus == runtime.APPSTATE_RUNNING || runtime.Container().CurrentStatus == runtime.APPSTATE_ERROR {
+		if service.Container().RequiredAppStatus != service.Container().CurrentStatus {
+			switch service.Container().RequiredAppStatus {
+			case service.APPSTATE_SETUP:
+				if service.Container().CurrentStatus == service.APPSTATE_RUNNING || service.Container().CurrentStatus == service.APPSTATE_ERROR {
 					log.Info("Stopping service registry...")
-					runtime.Container().ServiceRegistry.Stop()
+					(*service.Container().ServiceRegistry).Stop()
 				}
 				log.Info("Entering setup mode...")
-				runtime.Container().CurrentStatus = runtime.APPSTATE_SETUP
-			case runtime.APPSTATE_RUNNING:
-				if runtime.Container().Config.Ready() {
-					runtime.Container().CurrentStatus = runtime.APPSTATE_STARTING
+				service.Container().CurrentStatus = service.APPSTATE_SETUP
+			case service.APPSTATE_RUNNING:
+				if service.Container().Config.Ready() {
+					service.Container().CurrentStatus = service.APPSTATE_STARTING
 					log.Info("Starting WinKube...")
-					if runtime.Container().Config.NetMulticastEnabled {
+					if service.Container().Config.NetMulticastEnabled {
 						log.Info("Starting UPnP multicast service registry...")
-						runtime.Container().ServiceRegistry.StartUPnP(&runtime.Container().ServiceProvider, runtime.Container().Config.NetUPnPPort)
+						(*service.Container().ServiceRegistry).StartUPnP(service.Container().ServiceProvider, service.Container().Config.NetUPnPPort)
 					} else {
 						log.Info("Starting catalogue service registry...")
-						runtime.Container().ServiceRegistry.StartServiceCatalogue(&runtime.Container().ServiceProvider, strings.Split(runtime.Container().Config.NetLookupMasters, ","))
+						(*service.Container().ServiceRegistry).StartServiceCatalogue(service.Container().ServiceProvider, strings.Split(service.Container().Config.NetLookupMasters, ","))
 					}
 					// TODO Start node and register service in catalogue
-					runtime.Container().CurrentStatus = runtime.APPSTATE_RUNNING
+					service.Container().CurrentStatus = service.APPSTATE_RUNNING
 					log.Info("WinKube running.")
 				}
-			case runtime.APPSTATE_IDLE:
-				if runtime.Container().CurrentStatus == runtime.APPSTATE_RUNNING {
+			case service.APPSTATE_IDLE:
+				if service.Container().CurrentStatus == service.APPSTATE_RUNNING {
 					// TODO mark worker node as non deployable
 					// wait for Kubernetes to remove workload
-					runtime.Container().CurrentStatus = runtime.APPSTATE_IDLE
+					service.Container().CurrentStatus = service.APPSTATE_IDLE
 					log.Info("WinKube running.")
 				}
 			}
@@ -91,39 +90,41 @@ func explore(path string) {
 	}
 }
 
-func createDummyService(nodeConfig runtime.NodeConfig) netutil.Service {
+func createDummyService(nodeConfig service.NodeConfig) netutil.Service {
 	return netutil.Service{
-		AdType:   runtime.WINKUBE_ADTYPE,
+		AdType:   service.WINKUBE_ADTYPE,
 		Id:       nodeConfig.Id(),
 		Service:  nodeConfig.NodeType.String(),
 		Version:  "1",
 		Location: nodeConfig.Host + ":" + strconv.Itoa(nodeConfig.Port),
-		Server:   util.RuntimeInfo() + " UPnP/1.0 WinKube/1.0",
+		Server:   util2.RuntimeInfo() + " UPnP/1.0 WinKube/1.0",
 		MaxAge:   60,
 	}
 }
 
 // Handles the / (home URL)
 func HomeHandler(w http.ResponseWriter, r *http.Request) {
-	bytes, _ := json.Marshal(runtime.Container().Config.NodeConfig)
+	bytes, _ := json.Marshal(service.Container().Config.NodeConfig)
 	w.Write(bytes)
 }
 
 // Handles the /cluster URL
 func ClusterHandler(w http.ResponseWriter, r *http.Request) {
-	bytes, _ := json.Marshal(runtime.Container().Config)
+	bytes, _ := json.Marshal(service.Container().Config)
 	w.Write(bytes)
 }
 
 // Main that starts the server and all services
 func main() {
 	fmt.Println("Starting management container...")
-	runtime.Start()
-	log.Info(runtime.Container().Stats())
-	if !runtime.Container().Config.Ready() {
-		router := runtime.Container().Router
+	service.Start()
+	log.Info(service.Container().Stats())
+	router := service.Container().Router
+	if !service.Container().Config.Ready() {
 		setupWebapp := service.SetupWebApplication(router)
 		router.PathPrefix("/setup").HandlerFunc(setupWebapp.HandleRequest)
 	}
+	monitorWebapp := service.MonitorWebApplication(router)
+	router.PathPrefix("/").HandlerFunc(monitorWebapp.HandleRequest)
 	startup()
 }

@@ -19,7 +19,7 @@ import (
 	"github.com/koron/go-ssdp"
 	log "github.com/sirupsen/logrus"
 	"github.com/winkube/service/assert"
-	"github.com/winkube/service/util"
+	util2 "github.com/winkube/util"
 	"net"
 	"strconv"
 	"strings"
@@ -84,8 +84,8 @@ type serviceRegistry struct {
 }
 
 // Creates a new ServiceRegistry server.
-func InitServiceRegistry(advertisementType string, serviceProvider *ServiceProvider) ServiceRegistry {
-	var serviceRegistry = serviceRegistry{
+func InitServiceRegistry(advertisementType string, serviceProvider *ServiceProvider) *ServiceRegistry {
+	var serviceRegistry serviceRegistry = serviceRegistry{
 		adType:          advertisementType,
 		serviceProvider: serviceProvider,
 		aliveInterval:   30,
@@ -102,7 +102,8 @@ func InitServiceRegistry(advertisementType string, serviceProvider *ServiceProvi
 	if err := serviceRegistry.monitor.Start(); err != nil {
 		log.Fatal(err)
 	}
-	return serviceRegistry
+	var sm ServiceRegistry = serviceRegistry
+	return &sm
 }
 
 // Access the host part of the Location field.
@@ -210,7 +211,7 @@ func (this serviceRegistry) Listen(listener *ServiceListener) {
 
 // Removes a listener for handling multicast service announcements.
 func (this serviceRegistry) Unlisten(listener *ServiceListener) {
-	index := util.IndexOf(this.serviceHandlers, listener)
+	index := util2.IndexOf(this.serviceHandlers, listener)
 	if index >= 0 {
 		this.serviceHandlers = append(this.serviceHandlers[:index], this.serviceHandlers[index:]...)
 	}
@@ -306,7 +307,7 @@ func (this serviceRegistry) keepAliveLoop() {
 					log.Info("Some services have been removed, sending bye message...")
 					unusedAdvertisers := map[string]ssdp.Advertiser{}
 					for key, adv := range this.advertizers {
-						if !util.Exists(usedAdvertisers, key) {
+						if !util2.Exists(usedAdvertisers, key) {
 							unusedAdvertisers[key] = *adv
 						}
 					}
@@ -376,5 +377,5 @@ func GetDefaultInterface() *net.Interface {
  * Calculates a runtme info as used in the UPnP SERVER field.
  */
 func runtimeInfo() string {
-	return util.RuntimeInfo() + " UPnP/1.0 WinKube/1.0"
+	return util2.RuntimeInfo() + " UPnP/1.0 WinKube/1.0"
 }

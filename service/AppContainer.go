@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package runtime
+package service
 
 import (
 	"fmt"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"github.com/winkube/service/netutil"
-	"github.com/winkube/service/util"
+	util2 "github.com/winkube/util"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 	"golang.org/x/text/message/catalog"
@@ -57,12 +57,14 @@ func Start() {
 		Logger:            Logger(),
 		Config:            Config(),
 		Router:            Router(),
+		NodeManager:       createNodeManager(),
 		CurrentStatus:     APPSTATE_INITIALIZING,
 		RequiredAppStatus: APPSTATE_RUNNING,
 	}
-	container.ServiceProvider = ServiceProvider(container.Config)
-	container.ServiceRegistry = ServiceRegistry(&container.ServiceProvider, WINKUBE_ADTYPE)
-	container.ClusterManager = CreateClusterManager(&container.ServiceRegistry)
+	container.ActionManager = CreateActionManager()
+	container.ServiceProvider = CreateServiceProvider(container.Config)
+	container.ServiceRegistry = ServiceRegistry(container.ServiceProvider, WINKUBE_ADTYPE)
+	container.ClusterManager = CreateClusterManager(container.ServiceRegistry)
 	container.CurrentStatus = APPSTATE_INITIALIZED
 	container.Logger.Info("WinKube is initialized, continue...")
 }
@@ -70,13 +72,15 @@ func Start() {
 type AppContainer struct {
 	Startup           time.Time
 	StartupDuration   time.Duration
-	Logger            log.Logger
+	Logger            *log.Logger
 	MessageCatalog    *catalog.Builder
 	Config            *AppConfiguration
-	ServiceProvider   netutil.ServiceProvider
+	ServiceProvider   *netutil.ServiceProvider
 	Router            *mux.Router
-	ServiceRegistry   netutil.ServiceRegistry
-	ClusterManager    ClusterManager
+	ServiceRegistry   *netutil.ServiceRegistry
+	ClusterManager    *ClusterManager
+	NodeManager       *NodeManager
+	ActionManager     ActionManager
 	CurrentStatus     AppStatus
 	RequiredAppStatus AppStatus
 }
@@ -99,19 +103,20 @@ func (this DefaultServiceProvider) GetServices() []netutil.Service {
 }
 
 // Dependeny Injection Module, provides logger and more...
-func ServiceProvider(config *AppConfiguration) netutil.ServiceProvider {
+func CreateServiceProvider(config *AppConfiguration) *netutil.ServiceProvider {
 	log.Info("Initializing service provider...")
-	return DefaultServiceProvider{
+	var sp netutil.ServiceProvider = DefaultServiceProvider{
 		config: config,
 	}
+	return &sp
 }
 func Config() *AppConfiguration {
-	return CreateAppConfig("winkube.config")
+	return CreateAppConfig("winkube.config", 1)
 }
-func Logger() log.Logger {
+func Logger() *log.Logger {
 	fmt.Println("Initializing logging...")
 	//log.SetFormatter(&log.JSONFormatter{}) // Log as JSON instead of the default ASCII formatter.
-	log.SetFormatter(util.NewPlainFormatter())
+	log.SetFormatter(util2.NewPlainFormatter())
 
 	// Output to stdout instead of the default stderr
 	log.SetOutput(os.Stdout)
@@ -120,14 +125,14 @@ func Logger() log.Logger {
 	log.WithFields(log.Fields{
 		"app":    "kube-win",
 		"node":   netutil.GetDefaultIP(),
-		"server": util.RuntimeInfo(),
+		"server": util2.RuntimeInfo(),
 	})
 	dir, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("Working directory: " + dir)
-	return *log.StandardLogger()
+	return log.StandardLogger()
 }
 func Router() *mux.Router {
 	log.Info("Initializing web application...")
@@ -135,6 +140,6 @@ func Router() *mux.Router {
 	return r
 }
 
-func ServiceRegistry(serviceProvider *netutil.ServiceProvider, adType string) netutil.ServiceRegistry {
+func ServiceRegistry(serviceProvider *netutil.ServiceProvider, adType string) *netutil.ServiceRegistry {
 	return netutil.InitServiceRegistry(adType, serviceProvider)
 }
