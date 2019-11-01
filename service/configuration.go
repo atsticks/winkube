@@ -22,7 +22,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/winkube/service/netutil"
 	util2 "github.com/winkube/util"
-	"gopkg.in/go-playground/validator.v9"
 	"net"
 	"os"
 	"strconv"
@@ -81,7 +80,7 @@ type NetConfig struct {
 	NetLookupMaster     string
 }
 
-type ClusterLogin struct {
+type ControllerConnection struct {
 	ClusterId          string `validate:"required"`
 	ClusterCredentials string
 	Controller         *ControllerNode
@@ -89,15 +88,16 @@ type ClusterLogin struct {
 
 type ClusterConfig struct {
 	LocallyManaged bool
-	ClusterLogin
+	ControllerConnection
 	ClusterPodCIDR         string    `validate:"required"`
 	ClusterServiceDomain   string    `validate:"required"`
 	ClusterVMNet           VMNetType `validate:"required"`
-	ClusterMasterIp        string    `validate:"required"`
+	ClusterControlPane     string
+	ClusterMasters         []string
 	ClusterMasterApiPort   int
 	ClusterNetCIDR         string
 	ClusterInternalNetCIDR string
-	ClusterToken           string `validate:"required"`
+	ClusterToken           string
 	NetConfig
 }
 
@@ -108,9 +108,9 @@ func (this ClusterConfig) isFullConfig() bool {
 type NodeConfig struct {
 	NodeName   string   `validate:"required"` // node
 	NodeType   NodeType `validate:"required"`
-	NodeIP     string   `validate:"required"`          // host IP
-	NodeMemory int      `validate:"required,gte=1028"` // 2048
-	NodeCPU    int      `validate:"required,gte=1"`    // 2
+	NodeIP     string
+	NodeMemory int `validate:"required,gte=1028"` // 2048
+	NodeCPU    int `validate:"required,gte=1"`    // 2
 }
 
 type LocalNodeConfig struct {
@@ -135,6 +135,7 @@ func (this *ClusterConfig) init(config *SystemConfiguration) *ClusterConfig {
 		this.ClusterPodCIDR = config.ClusterConfig.ClusterPodCIDR
 		this.ClusterVMNet = config.ClusterConfig.ClusterVMNet
 		this.ClusterCredentials = config.ClusterConfig.ClusterCredentials
+		this.ClusterControlPane = config.ClusterConfig.Controller.Host
 	}
 	return this
 }
@@ -143,10 +144,10 @@ type SystemConfiguration struct {
 	Id string `validate:"required", json:"id"`
 	NetConfig
 	LocalNetConfig
-	ClusterLogin  *ClusterLogin    `validate:"required", json:"clusterLogin"`
-	ClusterConfig *ClusterConfig   `json:"cluster"`
-	MasterNode    *LocalNodeConfig `json:"master"`
-	WorkerNode    *LocalNodeConfig `json:"worker"`
+	ClusterLogin  *ControllerConnection `validate:"required", json:"clusterLogin"`
+	ClusterConfig *ClusterConfig        `json:"cluster"`
+	MasterNode    *LocalNodeConfig      `json:"master"`
+	WorkerNode    *LocalNodeConfig      `json:"worker"`
 }
 
 func (this SystemConfiguration) IsWorkerNode() bool {
@@ -163,7 +164,7 @@ func (this SystemConfiguration) UndefinedNode() bool {
 }
 
 func (conf SystemConfiguration) Ready() bool {
-	err := validator.New().Struct(Container().Config)
+	err := Container().Validator.Struct(Container().Config)
 	if err == nil {
 		return true
 	}
@@ -174,16 +175,17 @@ func InitAppConfig() *SystemConfiguration {
 	fmt.Println("Initializing config...")
 	var appConfig SystemConfiguration = SystemConfiguration{
 		Id: uuid.New().String(),
-		ClusterLogin: &ClusterLogin{
+		ClusterLogin: &ControllerConnection{
 			ClusterId:          "MyCluster",
 			ClusterCredentials: "MyCluster",
 		},
 		ClusterConfig: &ClusterConfig{
-			ClusterLogin: ClusterLogin{
+			ControllerConnection: ControllerConnection{
 				ClusterId:          "MyCluster",
 				ClusterCredentials: "MyCluster",
 			},
 			ClusterPodCIDR:       "172.16.0.0/16",
+			ClusterControlPane:   hostname(),
 			ClusterMasterApiPort: 6443,
 			ClusterServiceDomain: "cluster.local",
 			ClusterVMNet:         NAT,
@@ -237,7 +239,7 @@ func (config *SystemConfiguration) readConfig() *Action {
 		actionManager.LogAction(action.Id, "Could not unmarshal JSON from config: "+WINKUBE_CONFIG_FILE)
 		return actionManager.CompleteWithError(action.Id, err)
 	}
-	err = validator.New().Struct(config)
+	err = Container().Validator.Struct(config)
 	if err != nil {
 		actionManager.LogAction(action.Id, "Loaded config is not valid, will trigger setup, error: "+err.Error())
 	}

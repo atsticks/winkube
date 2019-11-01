@@ -67,13 +67,13 @@ func readConfig(context *webapp.RequestContext) ConfigBean {
 		Values: Container().Config,
 	}
 	config := Container().Config
-	if context.GetParameter("ClusterLogin-ClusterState-Id") != "" {
+	if context.GetParameter("ControllerConnection-ClusterState-Id") != "" {
 		config.ClusterLogin.ClusterId =
-			context.GetParameter("ClusterLogin-ClusterState-Id")
+			context.GetParameter("ControllerConnection-ClusterState-Id")
 	}
-	if context.GetParameter("ClusterLogin-ClusterState-Credentials") != "" {
+	if context.GetParameter("ControllerConnection-ClusterState-Credentials") != "" {
 		config.ClusterLogin.ClusterCredentials =
-			context.GetParameter("ClusterLogin-ClusterState-Credentials")
+			context.GetParameter("ControllerConnection-ClusterState-Credentials")
 	}
 	// controller
 	if context.GetParameter("IsController") != "" {
@@ -83,7 +83,7 @@ func readConfig(context *webapp.RequestContext) ConfigBean {
 		config.ClusterLogin.ClusterId = config.ClusterConfig.ClusterId
 		config.ClusterLogin.ClusterCredentials = config.ClusterConfig.ClusterCredentials
 		Log().Debug("In: ClusterConfig.LocallyManaged = " + strconv.FormatBool(config.ClusterConfig.LocallyManaged))
-		Log().Debug("Applied: ClusterLogin based on current ClusterConfig")
+		Log().Debug("Applied: ControllerConnection based on current ClusterConfig")
 	}
 	readNetConfig(config, context)
 	readNodeConfig(config, context)
@@ -383,9 +383,16 @@ func InstallConfigAction(context *webapp.RequestContext, writer http.ResponseWri
 	config := Container().Config
 	_ = config.writeConfig()
 	nodeManager := *Container().NodeManager
-	_, err := nodeManager.ValidateConfig()
+	err := nodeManager.ValidateConfig()
 	if err != nil {
-		fmt.Println("Validation failed: " + err.Error())
+		data := make(map[string]interface{})
+		bean := readConfig(context)
+		data["Config"] = bean
+		data["error"] = "Validation failed: " + err.Error()
+		return &webapp.ActionResponse{
+			NextPage: "step3",
+			Model:    data,
+		}
 	} else {
 		fmt.Println("Validation successful...")
 	}

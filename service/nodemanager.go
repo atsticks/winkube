@@ -48,15 +48,6 @@ type VagrantConfig struct {
 	MasterToken       string        `validate:"required"`
 }
 
-func vagrantNodeValidation(sl validator.StructLevel) {
-
-	config := sl.Current().Interface().(VagrantNode)
-
-	if config.NodeType != Master && config.NodeType != Worker {
-		sl.ReportError(config.NodeType, "NodeType", "IsMaster", "NodeType must be either Master or Worker", "")
-	}
-}
-
 func createVagrantConfig(appConfig *SystemConfiguration) VagrantConfig {
 	clusterConfig := Container().Config.ClusterConfig
 	config := VagrantConfig{
@@ -67,40 +58,44 @@ func createVagrantConfig(appConfig *SystemConfiguration) VagrantConfig {
 		HostInterface:     appConfig.NetHostInterface,
 		HostIp:            appConfig.GetHostIp(),
 		NetType:           clusterConfig.ClusterVMNet,
-		PublicMasterIp:    clusterConfig.ClusterMasterIp,
-		NodeConfigs:       createNodeConfigs(appConfig.ClusterLogin.ClusterId, appConfig.MasterNode, appConfig.WorkerNode, clusterConfig.ClusterVMNet),
+		PublicMasterIp:    clusterConfig.ClusterControlPane,
+		NodeConfigs:       createNodeConfigs(clusterConfig, appConfig.MasterNode, appConfig.WorkerNode),
 	}
 	if appConfig.MasterNode != nil {
 		config.LocalMasterIp = appConfig.MasterNode.NodeIP
+		if config.PublicMasterIp == "" {
+			config.PublicMasterIp = config.LocalMasterIp
+		}
 	}
+
 	return config
 }
 
-func createNodeConfigs(clusterId string, masterNode *LocalNodeConfig, workerNode *LocalNodeConfig, net VMNetType) []VagrantNode {
+func createNodeConfigs(clusterConfig *ClusterConfig, masterNode *LocalNodeConfig, workerNode *LocalNodeConfig) []VagrantNode {
 	var result []VagrantNode
 	if masterNode != nil {
 		node := VagrantNode{
-			Name:       clusterId + "-" + masterNode.NodeType.String() + "-" + hostname(),
+			Name:       clusterConfig.ClusterId + "-" + masterNode.NodeType.String() + "-" + hostname(),
 			Box:        masterNode.NodeBox,
 			BoxVersion: masterNode.NodeBoxVersion,
 			Ip:         getNodeIp(masterNode.NodeIP, true),
 			Memory:     masterNode.NodeMemory,
 			Cpu:        masterNode.NodeCPU,
 			NodeType:   masterNode.NodeType,
-			NetType:    net.String(),
+			NetType:    clusterConfig.ClusterVMNet.String(),
 		}
 		result = append(result, node)
 	}
 	if workerNode != nil {
 		node := VagrantNode{
-			Name:       clusterId + "-" + workerNode.NodeType.String() + "-" + hostname(),
+			Name:       clusterConfig.ClusterId + "-" + workerNode.NodeType.String() + "-" + hostname(),
 			Box:        workerNode.NodeBox,
 			BoxVersion: workerNode.NodeBoxVersion,
 			Ip:         getNodeIp(workerNode.NodeIP, false),
 			Memory:     workerNode.NodeMemory,
 			Cpu:        workerNode.NodeCPU,
 			NodeType:   workerNode.NodeType,
-			NetType:    net.String(),
+			NetType:    clusterConfig.ClusterVMNet.String(),
 		}
 		result = append(result, node)
 	}
@@ -112,6 +107,9 @@ func getNodeIp(ip string, master bool) string {
 	if ip != "" {
 		return ip
 	}
+	if clusterManager == nil || (*clusterManager.GetController()) == nil {
+		return ""
+	}
 	if clusterManager.GetClusterConfig().ClusterVMNet == Bridged {
 		return (*clusterManager.GetController()).ReserveNodeIP(master)
 	}
@@ -120,7 +118,7 @@ func getNodeIp(ip string, master bool) string {
 
 type NodeManager interface {
 	IsReady() bool
-	ValidateConfig() (*VagrantConfig, error)
+	ValidateConfig() error
 	Initialize(override bool) *Action
 	StartNode() *Action
 	StopNode() *Action
@@ -131,18 +129,15 @@ type NodeManager interface {
 type nodeManager struct {
 	isSetup         bool
 	templateManager *util.TemplateManager
-	configValidator *validator.Validate
 }
 
 func createNodeManager() *NodeManager {
-	validator := validator.New()
-	validator.RegisterStructValidation(vagrantNodeValidation, VagrantNode{})
+
 	templateManager := util.CreateTemplateManager()
 	templateManager.InitTemplates(map[string]string{"vagrant": "templates/vagrant/Vagrantfile"})
 	var manager NodeManager = nodeManager{
 		isSetup:         false,
 		templateManager: templateManager,
-		configValidator: validator,
 	}
 	return &manager
 }
@@ -151,16 +146,14 @@ func (this nodeManager) IsReady() bool {
 	return util.FileExists("Vagrantfile")
 }
 
-func (this nodeManager) ValidateConfig() (*VagrantConfig, error) {
-	vagrantConfig := createVagrantConfig(Container().Config)
-	// validate config
-	return &vagrantConfig, this.configValidator.Struct(vagrantConfig)
+func (this nodeManager) ValidateConfig() error {
+	return Container().Validator.Struct(Container().Config)
 }
 
 func (this nodeManager) createVagrantConfig(config *SystemConfiguration) (*VagrantConfig, error) {
 	vagrantConfig := createVagrantConfig(config)
 	// validate config
-	err := this.configValidator.Struct(vagrantConfig)
+	err := Container().Validator.Struct(vagrantConfig)
 	if err != nil {
 		printValidationErrors(err)
 	}

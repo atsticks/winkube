@@ -29,6 +29,9 @@
 <div class="container">
     <h1>{{index .Messages "winkube.setup.step3.title"}}</h1>
     <p>{{ index .Messages "winkube.setup3.description"}}</p>
+    {{if .Data.error}}
+    <p><font color="red">{{.Data.error}}</font></p>
+    {{end}}
     <!-- Your configuration will be stored at <code>A/B/C</code> and all required work will be performed. Please check your configuration
     before starting the automatic setup procedure:</p> -->
     <form method="post" enctype="multipart/form-data">
@@ -57,11 +60,11 @@
             </thead>
             <tbody>
             <tr>
-                <th scope="row">{{ index .Messages "cluster-net-cidr.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "cluster-net-cidr.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" id="ip_interface" value="{{ .Data.Config.Values.ClusterConfig.ClusterNetCIDR}}"></td>
             </tr>
             <tr>
-                <th scope="row">{{ index .Messages "interface.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "interface.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" name="NetHostInterface" id="interface" value="{{ .Data.Config.Values.NetHostInterface}}"></td>
             </tr>
             <tr>
@@ -70,12 +73,12 @@
             </tr>
             {{ if .Data.Config.Values.NetMulticastEnabled}}
             <tr>
-                <th scope="row">{{ index .Messages "upnp.port.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "upnp.port.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" id="upnp_port" value="{{ .Data.Config.Values.NetUPnPPort }}"></td>
             </tr>
             {{ else }}
             <tr>
-                <th scope="row">{{ index .Messages "lookupMaster.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "lookupMaster.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" id="lookup_masters" value="{{ .Data.Config.Values.NetLookupMaster }}"></td>
             </tr>
             {{end}}
@@ -94,7 +97,7 @@
                 <td><input type="text" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ClusterLogin.ClusterId }}"></td>
             </tr>
             <tr>
-                <th scope="row">{{ index .Messages "cluster-credentials-login.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "cluster-credentials-login.label"}}</th>
                 <td><input type="password" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ClusterLogin.ClusterCredentials }}"></td>
             </tr>
             {{else}}
@@ -103,27 +106,27 @@
                 <td><input type="text" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ClusterConfig.ClusterId }}"></td>
             </tr>
             <tr>
-                <th scope="row">{{ index .Messages "cluster-credentials.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "cluster-credentials.label"}}</th>
                 <td><input type="password" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ClusterConfig.ClusterCredentials }}"></td>
             </tr>
             <tr>
-                <th scope="row">{{ index .Messages "cluster-cidr.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "cluster-cidr.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ClusterConfig.ClusterPodCIDR }}"></td>
             </tr>
             <tr>
-                <th scope="row">{{ index .Messages "cluster-net-cidr.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "cluster-net-cidr.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ClusterConfig.ClusterNetCIDR }}"></td>
             </tr>
             <tr>
-                <th scope="row">{{ index .Messages "cluster-service-domain.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "cluster-service-domain.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ClusterConfig.ClusterServiceDomain }}"></td>
             </tr>
             <tr>
-                <th scope="row">{{ index .Messages "cluster-network.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "cluster-network.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" id="ip_interface" value="{{ .Data.Config.Values.ClusterConfig.ClusterVMNet.String}}"></td>
             </tr>
             <tr>
-                <th scope="row">{{ index .Messages "cluster-master-api-port.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "cluster-master-api-port.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" name="ClusterMasterApiPort" value="{{ .Data.Config.Values.ClusterConfig.ClusterMasterApiPort}}"></td>
             </tr>
             {{end}}
@@ -140,27 +143,27 @@
             </thead>
             <tbody>
             <tr>
-                <th scope="row">{{ index .Messages "node-type.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "node-type.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" id="masterType" value="Master"></td>
             </tr>
             <tr>
-                <th scope="row">{{ index .Messages "master-name.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "master-name.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" name="MasterName" value="{{ .Data.Config.Values.MasterNode.NodeName }}"></td>
             </tr>
             <tr>
-                <th scope="row">{{ index .Messages "master-image.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "master-image.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" name="MasterBox" value="{{ .Data.Config.Values.MasterNode.NodeBox }}"></td>
             </tr>
             <tr>
-                <th scope="row">{{ index .Messages "master-boxversion.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "master-boxversion.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" name="MasterBoxVersion" value="{{ .Data.Config.Values.MasterNode.NodeBoxVersion }}"></td>
             </tr>
             <tr>
-                <th scope="row">{{ index .Messages "master-memory.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "master-memory.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" name="MasterMemory" value="{{ .Data.Config.Values.MasterNode.NodeMemory }}"></td>
             </tr>
             <tr>
-                <th scope="row">{{ index .Messages "master-cpu.label"}}</th>
+                <th scope="row" width="50%">{{ index .Messages "master-cpu.label"}}</th>
                 <td><input type="text" readonly class="form-control-plaintext" name="MasterCPU" value="{{ .Data.Config.Values.MasterNode.NodeCPU }}"></td>
             </tr>
             {{if .Data.Config.Values.MasterNode.NodeIP}}
@@ -181,27 +184,27 @@
                 </thead>
                 <tbody>
                 <tr>
-                    <th scope="row">{{ index .Messages "node-type.label"}}</th>
+                    <th scope="row" width="50%">{{ index .Messages "node-type.label"}}</th>
                     <td><input type="text" readonly class="form-control-plaintext" id="workerType" value="Worker"></td>
                 </tr>
                 <tr>
-                    <th scope="row">{{ index .Messages "worker-name.label"}}</th>
+                    <th scope="row" width="50%">{{ index .Messages "worker-name.label"}}</th>
                     <td><input type="text" readonly class="form-control-plaintext" name="WorkerName" value="{{ .Data.Config.Values.WorkerNode.NodeName }}"></td>
                 </tr>
                 <tr>
-                    <th scope="row">{{ index .Messages "worker-image.label"}}</th>
+                    <th scope="row" width="50%">{{ index .Messages "worker-image.label"}}</th>
                     <td><input type="text" readonly class="form-control-plaintext" name="WorkerBox" value="{{ .Data.Config.Values.WorkerNode.NodeBox }}"></td>
                 </tr>
                 <tr>
-                    <th scope="row">{{ index .Messages "worker-boxversion.label"}}</th>
+                    <th scope="row" width="50%">{{ index .Messages "worker-boxversion.label"}}</th>
                     <td><input type="text" readonly class="form-control-plaintext" name="WorkerBoxVersion" value="{{ .Data.Config.Values.WorkerNode.NodeBoxVersion }}"></td>
                 </tr>
                 <tr>
-                    <th scope="row">{{ index .Messages "worker-memory.label"}}</th>
+                    <th scope="row" width="50%">{{ index .Messages "worker-memory.label"}}</th>
                     <td><input type="text" readonly class="form-control-plaintext" name="WorkerMemory" value="{{ .Data.Config.Values.WorkerNode.NodeMemory }}"></td>
                 </tr>
                 <tr>
-                    <th scope="row">{{ index .Messages "worker-cpu.label"}}</th>
+                    <th scope="row" width="50%">{{ index .Messages "worker-cpu.label"}}</th>
                     <td><input type="text" readonly class="form-control-plaintext" name="WorkerCPU" value="{{ .Data.Config.Values.WorkerNode.NodeCPU }}"></td>
                 </tr>
                 {{if .Data.Config.Values.WorkerNode.NodeIP}}

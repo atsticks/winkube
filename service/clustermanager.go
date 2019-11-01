@@ -21,7 +21,6 @@ import (
 	"github.com/winkube/util"
 	"github.com/winkube/webapp"
 	"golang.org/x/text/language"
-	"gopkg.in/go-playground/validator.v9"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -157,7 +156,7 @@ func CreateDelegatingClusterManager(clusterId string, controller *ControllerNode
 		config:     clusterConfig,
 		clusterId:  clusterConfig.ClusterId,
 	}
-	err = validator.New().Struct(cm)
+	err = Container().Validator.Struct(cm)
 	if util.CheckAndLogError("Failed to start cluster manager.", err) {
 		CM = &cm
 		return &CM
@@ -177,7 +176,7 @@ type clusterManager struct {
 	Running           bool
 }
 
-// A remote ClusterController is an passive management component that delegates cluster management to the
+// A remote ClusterControlPane is an passive management component that delegates cluster management to the
 // current active cluster controller, which resideds on another host. It caches and regularly updates
 // current cloud configuration from its master controller.
 type remoteClusterController struct {
@@ -317,7 +316,7 @@ func (r remoteClusterController) ReleaseNodeIP(string) {
 	// Call controller to release ip
 	_, err := performDelete(r.controller.ServiceEndpoint.Location + "/cluster/nodeip")
 	if err != nil {
-		Log().Error("ReserveInternalIP", err)
+		Log().Error("ReleaseNodeIP", err)
 	}
 }
 
@@ -325,7 +324,7 @@ func (r remoteClusterController) ReleaseInternalIP(string) {
 	// Call controller to relöease internal ip
 	_, err := performDelete(r.controller.ServiceEndpoint.Location + "/cluster/internalip")
 	if err != nil {
-		Log().Error("ReserveInternalIP", err)
+		Log().Error("ReleaseInternalIP", err)
 	}
 }
 
@@ -347,7 +346,7 @@ func (r remoteClusterController) masterRemoteExec(command string) string {
 	return string(data)
 }
 
-// A ClusterController is an active management component that manages a cluster. It trackes the
+// A ClusterControlPane is an active management component that manages a cluster. It trackes the
 // nodes (masters and workers) in the clusters, the IP addresses used for bridge nodes (VMNetCIDR) as
 // well as for internal NAT addressing (internalNetCIDR) and finally the credentials for joining
 // the cluster.
@@ -363,7 +362,7 @@ type clusterController struct {
 
 func (c clusterController) Start() error {
 	// Start the cloud server
-	Log().Info("Initializing web application...")
+	Log().Info("Initializing controller api...")
 	router := mux.NewRouter()
 	clusterApiApp := createClusterManagerWebApp(&c)
 	router.PathPrefix("/cluster").HandlerFunc(clusterApiApp.HandleRequest)
@@ -408,18 +407,30 @@ func (c clusterController) GetWorkers() []Node {
 }
 
 func (c clusterController) ReserveNodeIP(master bool) string {
+	if c.clusterNATCIDR == nil {
+		return ""
+	}
 	return (*c.clusterNetCIDR).GetFreeIp()
 }
 
 func (c clusterController) ReserveInternalIP(master bool) string {
+	if c.clusterNATCIDR == nil {
+		return ""
+	}
 	return (*c.clusterNATCIDR).GetFreeIp()
 }
 
 func (c clusterController) ReleaseNodeIP(ip string) {
+	if c.clusterNetCIDR == nil {
+		return
+	}
 	(*c.clusterNetCIDR).MarkIpUnused(ip)
 }
 
 func (c clusterController) ReleaseInternalIP(ip string) {
+	if c.clusterNATCIDR == nil {
+		return
+	}
 	(*c.clusterNATCIDR).MarkIpUnused(ip)
 }
 
@@ -446,9 +457,8 @@ func (this *clusterManager) StartLocalController(config *ClusterConfig) error {
 		clusterNATCIDR: netutil.CreateCIDR(config.ClusterInternalNetCIDR),
 		clusterNetCIDR: netutil.CreateCIDR(config.ClusterNetCIDR),
 	}
-	err := validator.New().Struct(this)
+	err := Container().Validator.Struct(this)
 	if !util.CheckAndLogError("Failed to start cluster manager.", err) {
-	} else {
 		panic(err)
 	}
 	return this.clusterController.Start()
@@ -463,7 +473,7 @@ func (this *clusterManager) StartRemoteController(clusterConfig *ClusterConfig) 
 		config:     clusterConfig,
 		clusterId:  clusterConfig.ClusterId,
 	}
-	err = validator.New().Struct(this)
+	err = Container().Validator.Struct(this)
 	if !util.CheckAndLogError("Failed to start cluster manager.", err) {
 		panic(err)
 	}

@@ -23,6 +23,7 @@ import (
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 	"golang.org/x/text/message/catalog"
+	"gopkg.in/go-playground/validator.v9"
 	"os"
 	"sync"
 	"time"
@@ -58,20 +59,36 @@ func Log() *log.Logger {
 }
 
 func Start() {
-	container = &AppContainer{
+	appContainer := AppContainer{
+		Validator:         createValidator(),
 		Logger:            logger(),
-		Config:            config(),
 		Router:            router(),
-		NodeManager:       createNodeManager(),
 		CurrentStatus:     APPSTATE_INITIALIZING,
 		RequiredAppStatus: APPSTATE_RUNNING,
 	}
-	var sp netutil.ServiceProvider = *container.NodeManager
-	container.ServiceProvider = &sp
-	container.ServiceRegistry = serviceRegistry(container.ServiceProvider, WINKUBE_ADTYPE)
-	container.ClusterManager = CreateClusterManager(container.ServiceRegistry)
-	container.CurrentStatus = APPSTATE_INITIALIZED
-	container.Logger.Info("WinKube is initialized, continue...")
+	container = &appContainer
+	appContainer.Config = config()
+	appContainer.Router = router()
+	appContainer.NodeManager = createNodeManager()
+	var sp netutil.ServiceProvider = *appContainer.NodeManager
+	appContainer.ServiceProvider = &sp
+	appContainer.ServiceRegistry = serviceRegistry(container.ServiceProvider, WINKUBE_ADTYPE)
+	appContainer.ClusterManager = CreateClusterManager(container.ServiceRegistry)
+	appContainer.CurrentStatus = APPSTATE_INITIALIZED
+	appContainer.Logger.Info("WinKube is initialized, continue...")
+}
+
+func createValidator() *validator.Validate {
+	val := validator.New()
+	val.RegisterStructValidation(vagrantNodeValidation, VagrantNode{})
+	return val
+}
+
+func vagrantNodeValidation(sl validator.StructLevel) {
+	config := sl.Current().Interface().(VagrantNode)
+	if config.NodeType != Master && config.NodeType != Worker {
+		sl.ReportError(config.NodeType, "NodeType", "IsMaster", "NodeType must be either Master or Worker", "")
+	}
 }
 
 type AppContainer struct {
@@ -87,6 +104,7 @@ type AppContainer struct {
 	NodeManager       *NodeManager
 	CurrentStatus     AppStatus
 	RequiredAppStatus AppStatus
+	Validator         *validator.Validate
 }
 
 func (this AppContainer) Stats() string {
