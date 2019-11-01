@@ -46,5 +46,5 @@ type ActionResponse struct {
 	NextPage string
 	Forward  string
 	Model    interface{}
-	complete bool
+	Complete bool
 }

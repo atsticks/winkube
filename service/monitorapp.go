@@ -18,11 +18,14 @@
 package service
 
 import (
+	"bytes"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"github.com/winkube/webapp"
 	"golang.org/x/text/language"
 	"net/http"
+	"os/exec"
+	"time"
 )
 
 func MonitorWebApplication(router *mux.Router) *webapp.WebApplication {
@@ -43,19 +46,17 @@ func MonitorWebApplication(router *mux.Router) *webapp.WebApplication {
 		Template: "templates/action-log.html",
 	})
 	// Actions
-	monitorWebapp.SetAction("/", MainIndexAction)
-	monitorWebapp.SetAction("/start", StartAction)
-	monitorWebapp.SetAction("/stop", StopAction)
-	monitorWebapp.SetAction("/actions", ActionsAction)
-	monitorWebapp.SetAction("/actionlog", ActionLogAction)
-	monitorWebapp.SetAction("/actions-completed", ActionsCompletedAction)
-	//monitorWebapp.SetAction("/cordon", &NodeCordonAction{})
-	//monitorWebapp.SetAction("/drain", &NodeDrainAction{})
-	//monitorWebapp.SetAction("/console", &NodeConsoleAction{})
-	//monitorWebapp.SetAction("/start", &NodeStartAction{})
-	//monitorWebapp.SetAction("/stop", &NodeStopAction{})
-	//monitorWebapp.SetAction("/cluster/start", &ClusterStartAction{})
-	//monitorWebapp.SetAction("/cluster/stop", &ClusterStopAction{})
+	monitorWebapp.GetAction("/", MainIndexAction)
+	monitorWebapp.GetAction("/start", StartAction)
+	monitorWebapp.GetAction("/stop", StopAction)
+	monitorWebapp.GetAction("/actions", ActionsAction)
+	monitorWebapp.GetAction("/actionlog", ActionLogAction)
+	monitorWebapp.GetAction("/actions-completed", ActionsCompletedAction)
+	monitorWebapp.GetAction("/status", LogNodeStatusAction)
+	monitorWebapp.GetAction("/enter-setup", EnterSetupAction)
+	monitorWebapp.GetAction("/console", NodeConsoleAction)
+	//monitorWebapp.GetAction("/cordon", &NodeCordonAction{})
+	//monitorWebapp.GetAction("/drain", &NodeDrainAction{})
 	return monitorWebapp
 }
 
@@ -72,7 +73,7 @@ type Info struct {
 
 func ActionsAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	data := make(map[string]interface{})
-	data["actions"] = (Container().ActionManager).RunningActions()
+	data["actions"] = (*GetActionManager()).RunningActions()
 	return &webapp.ActionResponse{
 		NextPage: "actions",
 		Model:    data,
@@ -81,7 +82,7 @@ func ActionsAction(context *webapp.RequestContext, writer http.ResponseWriter) *
 
 func ActionsCompletedAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	data := make(map[string]interface{})
-	data["actions"] = (Container().ActionManager).CompletedActions()
+	data["actions"] = (*GetActionManager()).CompletedActions()
 	return &webapp.ActionResponse{
 		NextPage: "actions-completed",
 		Model:    data,
@@ -92,7 +93,7 @@ func ActionLogAction(context *webapp.RequestContext, writer http.ResponseWriter)
 	data := make(map[string]interface{})
 	actionId := context.GetQueryParameter("actionId")
 	backAction := context.GetQueryParameter("backAction")
-	action := Container().ActionManager.LookupAction(actionId)
+	action := (*GetActionManager()).LookupAction(actionId)
 	data["Action"] = action
 	data["backAction"] = backAction
 	return &webapp.ActionResponse{
@@ -137,5 +138,41 @@ func StopAction(context *webapp.RequestContext, writer http.ResponseWriter) *web
 			NodeInfo:    NodeInfo{},
 			ClusterInfo: ClusterInfo{},
 		},
+	}
+}
+
+func NodeConsoleAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	cmd := exec.Command("cmd", "/C", "start", "vagrant", "ssh")
+	err := cmd.Run()
+	if err != nil {
+		log.Panic("Cannopt open console...", err)
+	}
+	return &webapp.ActionResponse{
+		NextPage: "_redirect",
+		Model:    "/",
+	}
+}
+
+func EnterSetupAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	Container().RequiredAppStatus = APPSTATE_SETUP
+	time.Sleep(10 * time.Second)
+	return &webapp.ActionResponse{
+		NextPage: "_redirect",
+		Model:    "/setup",
+	}
+}
+
+func LogNodeStatusAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	cmd := exec.Command("vagrant", "status")
+	reader, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Panic("Cannopt open console...", err)
+	}
+	var buff = bytes.Buffer{}
+	buff.ReadFrom(reader)
+	writer.Write([]byte("Status:\n"))
+	writer.Write(buff.Bytes())
+	return &webapp.ActionResponse{
+		Complete: true,
 	}
 }

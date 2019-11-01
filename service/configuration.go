@@ -15,94 +15,154 @@
 package service
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
 	"github.com/winkube/service/netutil"
 	util2 "github.com/winkube/util"
 	"gopkg.in/go-playground/validator.v9"
+	"net"
+	"os"
 	"strconv"
 	"strings"
 )
 
+const WINKUBE_CONFIG_FILE = "winkube-config.json"
+
 type NodeType int
 
 const (
-	UndefinedNodeType NodeType = iota
-	WorkerNode
-	MasterNode
-	MonitorNode
+	UndefinedNode NodeType = iota
+	Worker
+	Master
+	Controller
 )
 
 func (this NodeType) String() string {
-	return [...]string{"UndefinedNodeType", "WorkerNode", "MasterNode", "MonitorNode"}[this]
+	return [...]string{"UndefinedNode", "Worker", "Master", "Controller"}[this]
 }
 func NodeType_Values() []NodeType {
 	return []NodeType{
-		UndefinedNodeType,
-		WorkerNode,
-		MasterNode,
-		MonitorNode,
+		UndefinedNode,
+		Worker,
+		Master,
+		Controller,
 	}
 }
 
-type NodeNetType int
+type VMNetType int
 
 const (
-	UndefinedNetType NodeNetType = iota
+	UndefinedNetType VMNetType = iota
 	NAT
 	Bridged
 )
 
-func (this NodeNetType) String() string {
+func (this VMNetType) String() string {
 	return [...]string{"NAT", "Bridged"}[this]
 }
-func NodeNetType_Values() []NodeNetType {
-	return []NodeNetType{
+func NodeNetType_Values() []VMNetType {
+	return []VMNetType{
 		NAT,
 		Bridged,
 	}
 }
 
+type LocalNetConfig struct {
+	NetHostInterface string `validate:"required"`
+	NetHostIP        string `validate:"required"`
+}
+
 type NetConfig struct {
 	NetMulticastEnabled bool
-	NetUPnPPort         int
-	NetLookupMasters    string
-	NetHostInterface    string `validate:"required"`
-	NetHostIP           string `validate:"required"`
+	NetUPnPPort         int `validate:"required"`
+	NetLookupMaster     string
+}
+
+type ClusterLogin struct {
+	ClusterId          string `validate:"required"`
+	ClusterCredentials string
+	Controller         *ControllerNode
 }
 
 type ClusterConfig struct {
-	ClusterID            string `validate:"required"`
-	ClusterCredentials   string
-	ClusterPodCIDR       string `validate:"required"`
-	ClusterServiceCIDR   string
-	ClusterServiceDomain string `validate:"required"`
-	ClusterVMNet         string `validate:"required"`
-	ClusterMasterApiPort int    `validate:"required"`
+	LocallyManaged bool
+	ClusterLogin
+	ClusterPodCIDR         string    `validate:"required"`
+	ClusterServiceDomain   string    `validate:"required"`
+	ClusterVMNet           VMNetType `validate:"required"`
+	ClusterMasterIp        string    `validate:"required"`
+	ClusterMasterApiPort   int
+	ClusterNetCIDR         string
+	ClusterInternalNetCIDR string
+	ClusterToken           string `validate:"required"`
+	NetConfig
+}
+
+func (this ClusterConfig) isFullConfig() bool {
+	return this.ClusterPodCIDR != "" && this.ClusterServiceDomain != ""
 }
 
 type NodeConfig struct {
-	NodeNetType       NodeNetType `validate:"required"`
-	NodeNetBridgeCIDR string
-	NodeNetNodeIP     string   `validate:"required"`
-	NodeType          NodeType `validate:"required"`
-	NodeIndex         int      `validate:"required"`
-	NodeName          string   `validate:"required"`          // vagrant-test-1
-	NodeBox           string   `validate:"required"`          // ubuntu/xenial64
-	NodeBoxVersion    string   `validate:"required"`          // 20180831.0.0
-	NodeMemory        int      `validate:"required,gte=1028"` // 2048
-	NodeCPU           int      `validate:"required,gte=1"`    // 2
-	InstanceModel
+	NodeName   string   `validate:"required"` // node
+	NodeType   NodeType `validate:"required"`
+	NodeIP     string   `validate:"required"`          // host IP
+	NodeMemory int      `validate:"required,gte=1028"` // 2048
+	NodeCPU    int      `validate:"required,gte=1"`    // 2
 }
 
-type AppConfiguration struct {
-	NetConfig          `validate:"required"`
-	ClusterConfig      `validate:"required"`
-	NodeConfig         `validate:"required"`
-	UseExistingCluster bool
+type LocalNodeConfig struct {
+	NodeConfig
+	NodeBox        string `validate:"required"` // ubuntu/xenial64, centos/7
+	NodeBoxVersion string `validate:"required"` // 20180831.0.0
 }
 
-func (conf AppConfiguration) Ready() bool {
+func (this *NetConfig) init(config *SystemConfiguration) *NetConfig {
+	this.NetLookupMaster = config.NetLookupMaster
+	this.NetUPnPPort = config.NetUPnPPort
+	this.NetMulticastEnabled = config.NetMulticastEnabled
+	return this
+}
+
+func (this *ClusterConfig) init(config *SystemConfiguration) *ClusterConfig {
+	this.ClusterId = config.ClusterLogin.ClusterId
+	this.ClusterCredentials = config.ClusterLogin.ClusterCredentials
+	if config.ClusterConfig != nil {
+		this.ClusterNetCIDR = config.ClusterConfig.ClusterNetCIDR
+		this.ClusterServiceDomain = config.ClusterConfig.ClusterServiceDomain
+		this.ClusterPodCIDR = config.ClusterConfig.ClusterPodCIDR
+		this.ClusterVMNet = config.ClusterConfig.ClusterVMNet
+		this.ClusterCredentials = config.ClusterConfig.ClusterCredentials
+	}
+	return this
+}
+
+type SystemConfiguration struct {
+	Id string `validate:"required", json:"id"`
+	NetConfig
+	LocalNetConfig
+	ClusterLogin  *ClusterLogin    `validate:"required", json:"clusterLogin"`
+	ClusterConfig *ClusterConfig   `json:"cluster"`
+	MasterNode    *LocalNodeConfig `json:"master"`
+	WorkerNode    *LocalNodeConfig `json:"worker"`
+}
+
+func (this SystemConfiguration) IsWorkerNode() bool {
+	return this.WorkerNode != nil
+}
+func (this SystemConfiguration) IsMasterNode() bool {
+	return this.MasterNode != nil
+}
+func (this SystemConfiguration) IsControllerNode() bool {
+	return this.ClusterConfig != nil && this.ClusterConfig.LocallyManaged
+}
+func (this SystemConfiguration) UndefinedNode() bool {
+	return !this.IsMasterNode() && !this.IsControllerNode() && !this.IsWorkerNode()
+}
+
+func (conf SystemConfiguration) Ready() bool {
 	err := validator.New().Struct(Container().Config)
 	if err == nil {
 		return true
@@ -110,57 +170,121 @@ func (conf AppConfiguration) Ready() bool {
 	return false
 }
 
-func CreateAppConfig(file string, nodeIndex int) *AppConfiguration {
-	var appConfig AppConfiguration = AppConfiguration{
-		NetConfig{
-			NetMulticastEnabled: true,
-			NetUPnPPort:         1900,
-			NetHostInterface:    netutil.GetDefaultInterface().Name,
-			NetHostIP:           netutil.GetDefaultIP().String(),
+func InitAppConfig() *SystemConfiguration {
+	fmt.Println("Initializing config...")
+	var appConfig SystemConfiguration = SystemConfiguration{
+		Id: uuid.New().String(),
+		ClusterLogin: &ClusterLogin{
+			ClusterId:          "MyCluster",
+			ClusterCredentials: "MyCluster",
 		},
-		ClusterConfig{
-			ClusterID:            "MyClusterID",
+		ClusterConfig: &ClusterConfig{
+			ClusterLogin: ClusterLogin{
+				ClusterId:          "MyCluster",
+				ClusterCredentials: "MyCluster",
+			},
 			ClusterPodCIDR:       "172.16.0.0/16",
-			ClusterVMNet:         "NAT",
 			ClusterMasterApiPort: 6443,
 			ClusterServiceDomain: "cluster.local",
+			ClusterVMNet:         NAT,
+			ClusterNetCIDR:       "192.168.99.0/24",
+			NetConfig: NetConfig{
+				NetMulticastEnabled: true,
+				NetUPnPPort:         1900,
+			},
 		},
-		NodeConfig{
-			NodeNetType:       NAT,
-			NodeIndex:         nodeIndex,
-			NodeNetNodeIP:     "192.168.10." + strconv.Itoa(nodeIndex+1),
-			NodeNetBridgeCIDR: "192.168.10.0/24",
-			NodeName:          "node",
-			NodeBox:           "ubuntu/xenial64",
-			NodeBoxVersion:    "20180831.0.0",
-			NodeMemory:        2048,
-			NodeCPU:           2,
-			InstanceModel:     *CreateDefaultInstanceModel(),
+		NetConfig: NetConfig{
+			NetMulticastEnabled: true,
+			NetUPnPPort:         1900,
 		},
-		false,
+		LocalNetConfig: LocalNetConfig{
+			NetHostInterface: netutil.GetDefaultInterface().Name,
+			NetHostIP:        netutil.GetDefaultIP().String(),
+		},
+		//Master: &LocalNodeConfig{
+		//	NodeConfig: NodeConfig{
+		//		NodeName:   "node",
+		//		NodeType:   Master,
+		//		NodeMemory: 2048,
+		//		NodeCPU:    2,
+		//	},
+		//	NodeBox:        "ubuntu/xenial64",
+		//	NodeBoxVersion: "20180831.0.0",
+		//},
 	}
-	props, err := util2.ReadProperties("winkube.config")
-	if err != nil {
-		log.Info("Failed to read node properties from winkube.config")
-	} else {
-		applyConfig(appConfig, props)
-	}
+	appConfig.readConfig()
 	return &appConfig
 }
 
-func applyConfig(config AppConfiguration, props util2.Properties) {
-	config.NetMulticastEnabled = evalBool(props, "net.multicast.enabled", config.NetMulticastEnabled)
-	config.NetUPnPPort = evalInt(props, "net.upnp.port", config.NetUPnPPort)
-	config.NetHostInterface = eval(props, "net.host.interface", config.NetHostInterface)
-	config.NetHostIP = eval(props, "net.host.ip", config.NetHostIP)
-	config.ClusterID = eval(props, "cluster.id", config.ClusterID)
-	config.ClusterCredentials = eval(props, "cluster.credentials", config.ClusterCredentials)
-	config.ClusterPodCIDR = eval(props, "cluster.pod-CIDR", config.ClusterPodCIDR)
-	config.ClusterVMNet = eval(props, "cluster.vm.net", config.ClusterVMNet)
-	config.NodeNetType = evalNodeNetType(props, "node.net.type", config.NodeNetType)
-	config.NodeNetBridgeCIDR = eval(props, "node.net.bridge-CIDR", config.NodeNetBridgeCIDR)
-	config.NodeNetNodeIP = eval(props, "node.net.ip", config.NodeNetNodeIP)
-	config.NodeType = evalNodeType(props, "node.net.type", config.NodeType)
+func (config *SystemConfiguration) readConfig() *Action {
+	actionManager := *GetActionManager()
+	action := actionManager.StartAction("Read config from " + WINKUBE_CONFIG_FILE)
+	f, err := os.Open(WINKUBE_CONFIG_FILE)
+	if err != nil {
+		actionManager.LogAction(action.Id, "Could not open file: "+WINKUBE_CONFIG_FILE)
+		return actionManager.CompleteWithError(action.Id, err)
+	}
+	defer f.Close()
+	// generate config file
+	var b bytes.Buffer
+	_, err = b.ReadFrom(f)
+	if err != nil {
+		actionManager.LogAction(action.Id, "Could not read config: "+WINKUBE_CONFIG_FILE)
+		return actionManager.CompleteWithError(action.Id, err)
+	}
+	jsonerr := json.Unmarshal(b.Bytes(), &config)
+	if jsonerr != nil {
+		actionManager.LogAction(action.Id, "Could not unmarshal JSON from config: "+WINKUBE_CONFIG_FILE)
+		return actionManager.CompleteWithError(action.Id, err)
+	}
+	err = validator.New().Struct(config)
+	if err != nil {
+		actionManager.LogAction(action.Id, "Loaded config is not valid, will trigger setup, error: "+err.Error())
+	}
+	return actionManager.CompleteWithMessage(action.Id, "Config successfully read: \n\n"+fmt.Sprintf("Id: %v\nNet:%+v\nHost:%+v\nCluster:%+v\nMaster:%+v\nWorker:%+v\nNodes:%+v\n",
+		config.Id,
+		config.NetConfig,
+		config.LocalNetConfig,
+		config.ClusterConfig,
+		config.MasterNode,
+		config.WorkerNode))
+}
+
+func (config *SystemConfiguration) writeConfig() *Action {
+	actionManager := *GetActionManager()
+	action := actionManager.StartAction("Write config to " + WINKUBE_CONFIG_FILE)
+	f, err := os.Create(WINKUBE_CONFIG_FILE)
+	if err != nil {
+		actionManager.LogAction(action.Id, "Could not open/create file: "+WINKUBE_CONFIG_FILE)
+		return actionManager.CompleteWithError(action.Id, err)
+	}
+	defer f.Close()
+	// generate config file
+	b, err := json.MarshalIndent(&config, "", "\t")
+	f.Write(b)
+	return actionManager.Complete(action.Id)
+}
+
+func (conf SystemConfiguration) GetHostIp() string {
+	interfaces, err := net.Interfaces()
+	if util2.CheckAndLogError("Failed to evaluate interfaces", err) {
+		for _, iface := range interfaces {
+			addresses, adrErrs := iface.Addrs()
+			if util2.CheckAndLogError("Failed to evaluate addresses for interface: "+iface.Name, adrErrs) {
+				for _, addr := range addresses {
+					switch v := addr.(type) {
+					case *net.IPNet:
+						if !v.IP.IsLoopback() {
+							if v.IP.To4() != nil { //Verify if IP is IPV4
+								return v.IP.String()
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func eval(props util2.Properties, key string, defaultValue string) string {
@@ -189,7 +313,7 @@ func evalInt(props util2.Properties, key string, defaultValue int) int {
 	}
 	return r
 }
-func evalNodeNetType(props util2.Properties, key string, defaultValue NodeNetType) NodeNetType {
+func evalNodeNetType(props util2.Properties, key string, defaultValue VMNetType) VMNetType {
 	val := props[key]
 	if val == "" {
 		return defaultValue

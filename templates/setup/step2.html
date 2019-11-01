@@ -32,156 +32,160 @@
     <p>{{ index .Messages "winkube.setup2.info"}}</p>
     <form method="post" enctype="multipart/form-data">
         <input name="IsForm" type="hidden" value="true">
-        {{ if .Data.Config.Values.UseExistingCluster }}
-            <div class="form-group" id="basicconfig">
-                <h2>{{ index .Messages "network-basic-setup.label" }}</h2>
-                <p>{{ index .Messages "upnp.description" }}</p>
-                <input name="Net-MulticastEnabled" type="checkbox" class="form-checkbox-input" id="net_multicast" checked="{{ .Data.Config.Values.NetMulticastEnabled }}">
-                <label for="net_multicast">{{ index .Messages "multicast-enabled.label"}}</label>
-                <div class="form-group" id="master_config">
-                <p>{{ index .Messages "upnp.alternative.description"}}:</p>
-                    <label for="master_nodes">*{{ index .Messages "masters.label"}}</label>
-                    <input name="Net-LookupMasters" type="text" class="form-control" id="master_nodes" aria-describedby="master_nodesHelp" placeholder="{{ index .Messages "masters.placeholder"}}"
-                    value="{{ .Data.Config.Values.NetLookupMasters }}">
-                    <small id="master_nodesHelp" class="form-text text-muted">{{ index .Messages "masters.help"}}</small>
-                </div>
-                <label for="interface">{{ index .Messages "interface.label"}}</label>
-                <select class="form-control" id="interfaces" name="Net-Interface">
-                    {{ range .Data.Interfaces.Entries}}
-                        <option {{if .Selected}}selected {{end}}value="{{ .Value}}">{{.Name}}</option>
-                    {{end}}
-                </select>
-            </div>
+        <div class="form-group" id="basicconfig">
+            <h2>{{ index .Messages "network-basic-setup.label" }}</h2>
+            <p>{{ index .Messages "upnp.description" }}</p>
+            <label for="config-id">{{ index .Messages "config-id.label"}}</label>
+            <input type="text" readonly class="form-control-plaintext" id="config-id" value="{{ .Data.Config.Values.Id}}" />
+            <input name="Net-MulticastEnabled" type="checkbox" class="form-checkbox-input" id="net_multicast" checked="{{ .Data.Config.Values.NetMulticastEnabled }}">
+            <label for="net_multicast">{{ index .Messages "multicast-enabled.label"}}</label>
+            <label for="interface">{{ index .Messages "interface.label"}}</label>
+            <select class="form-control" id="interfaces" name="Net-Interface">
+                {{ range .Data.Interfaces.Entries}}
+                    <option {{if .Selected}}selected {{end}}value="{{ .Value}}">{{.Name}}</option>
+                {{end}}
+            </select>
+            <br/>
+            <p>{{ index .Messages "upnp.alternative.description"}}</p>
+            <label for="lookupController">{{ index .Messages "lookupController.label"}}</label>
+            <input name="Net-LookupController" type="text" class="form-control" id="lookupController" aria-describedby="lookupControllerHelp" placeholder="{{ index .Messages "lookupController.placeholder"}}"
+                   value="{{ .Data.Config.Values.NetLookupMaster }}">
+            <small id="lookupControllerHelp" class="form-text text-muted">{{ index .Messages "lookupController.help"}}</small>
+        </div>
+        {{ if not .Data.Config.Values.IsControllerNode }}
             <div class="form-group" id="clusterconfig">
                 <h2>{{ index .Messages "cluster-config.label"}}</h2>
                 <label for="existingCluster">{{ index .Messages "cluster-choose.label"}}</label>
-                <select class="form-control" id="existingClusters" name="Cluster-ID">
+                <select class="form-control" id="existingClusters" name="ClusterLogin-Cluster-Id">
                     {{ range .Data.Clusters.Entries}}
                         <option name="{{.Name}}" {{if .Selected}}selected {{end}}value="{{ .Value}}">{{.Name}}</option>
                     {{end}}
                 </select>
                 <button type="submit" class="btn btn-secondary" formaction="step2" value="update_clusters">{{ index .Messages "update-clusters.label"}}</button>
+
+                <label for="cred">*{{ index .Messages "cluster-credentials.label"}}</label>
+                <input name="ClusterLogin-Credentials" type="text" class="form-control" id="cred" aria-describedby="clusterLoginHelp" placeholder="{{ index .Messages "cluster-credentials.placeholder"}}"
+                       value="{{ .Data.Config.Values.ClusterLogin.ClusterCredentials }}">
+                <small id="clusterHelp" class="form-text text-muted">{{ index .Messages "cluster-credentials.help"}}</small>
             </div>
         {{else}}
-            <div class="form-group" id="basicconfig">
-                <h2>{{ index .Messages "network-basic-setup.label" }}</h2>
-                <p>{{ index .Messages "upnp.description" }}</p>
-                <input name="Net-MulticastEnabled" type="checkbox" class="form-checkbox-input" id="net_multicast" checked="{{ .Data.Config.Values.NetMulticastEnabled }}">
-                <label for="net_multicast">*{{ index .Messages "multicast-enabled.label"}}</label>
-                <br/>
-                <label for="upnp_port">*{{ index .Messages "upnp.port.label"}}</label>
-                <input name="Net-UPnPPort" type="text" class="form-control" id="upnp_port" aria-describedby="upnpHelp" placeholder="Enter the UPnP communication port"
-                       value="{{ .Data.Config.Values.NetUPnPPort }}">
-                <br/>
-                <p>{{ index .Messages "upnp.alternative.description"}}:</p>
-                <label for="master_nodes">*{{ index .Messages "masters.label"}}</label>
-                <input name="Net-LookupMasters" type="text" class="form-control" id="master_nodes" aria-describedby="master_nodesHelp" placeholder="{{ index .Messages "masters.placeholder"}}"
-                           value="{{ .Data.Config.Values.NetLookupMasters }}">
-                <small id="master_nodesHelp" class="form-text text-muted">{{ index .Messages "masters.help"}}</small>
-                <label for="interface">{{ index .Messages "interface.label"}}</label>
-                <select class="form-control" id="interfaces" name="Net-Interface">
-                    {{ range .Data.Interfaces.Entries}}
-                        <option name="{{.Name}}" {{if .Selected}}selected {{end}}value="{{ .Value}}">{{.Name}}</option>
-                    {{end}}
-                </select>
-            </div>
             <div class="form-group" id="clusterconfig">
                 <h2>{{ index .Messages "cluster-config.label"}}</h2>
                 <p>{{ index .Messages "cluster-id.description"}}</p>
                 <label for="cluster_id">*{{ index .Messages "cluster-id.label"}}</label>
-                <input name="Cluster-ID" type="text" class="form-control" id="cluster_id" aria-describedby="clusterHelp" placeholder="{{ index .Messages "cluster-id.placeholder"}}"
-                       value="{{ .Data.Config.Values.ClusterID }}">
+                <input name="Cluster-Id" type="text" class="form-control" id="cluster_id" aria-describedby="clusterHelp" placeholder="{{ index .Messages "cluster-id.placeholder"}}"
+                       value="{{ .Data.Config.Values.ClusterConfig.ClusterId }}">
                 <small id="clusterHelp" class="form-text text-muted">{{ index .Messages "cluster-id.help"}}</small>
                 <br/>
                 <label for="cluster_credentials">{{ index .Messages "cluster-credentials.label"}}</label>
                 <input name="Cluster-Credentials" type="password" class="form-control" id="cluster_credentials" aria-describedby="clusterCredentialsHelp" placeholder="{{ index .Messages "cluster-credentials.placeholder"}}"
-                        value="{{ .Data.Config.Values.ClusterCredentials }}">
+                        value="{{ .Data.Config.Values.ClusterConfig.ClusterCredentials }}">
                 <small id="ClusterCredentialsHelp" class="form-text text-muted">{{ index .Messages "cluster-credentials.help"}}</small>
                 <br/>
                 <label for="net_cidr">{{ index .Messages "cluster-cidr.label"}}</label>
                 <input name="Cluster-PodCIDR" type="text" class="form-control" id="net_cidr" aria-describedby="cidrHelp" placeholder="{{ index .Messages "cluster-cidr.placeholder"}}"
-                       value="{{ .Data.Config.Values.ClusterPodCIDR }}">
+                       value="{{ .Data.Config.Values.ClusterConfig.ClusterPodCIDR }}">
                 <small id="cidrHelp" class="form-text text-muted">{{ index .Messages "cluster-cidr.help"}}</small>
-                <label for="service_cidr">{{ index .Messages "cluster-service-cidr.label"}}</label>
-                <input name="Cluster-ServiceCIDR" type="text" class="form-control" id="service_cidr" aria-describedby="serviceCidrHelp" placeholder="{{ index .Messages "cluster-service-cidr.placeholder"}}"
-                       value="{{ .Data.Config.Values.ClusterServiceCIDR }}">
-                <small id="serviceCidrHelp" class="form-text text-muted">{{ index .Messages "cluster-service-cidr.help"}}</small>
 
                 <label for="service_domain">{{ index .Messages "cluster-service-domain.label"}}</label>
                 <input name="Cluster-ServiceDomain" type="text" class="form-control" id="service_domain" aria-describedby="serviceDomainHelp" placeholder="{{ index .Messages "cluster-service-domain.placeholder"}}"
-                       value="{{ .Data.Config.Values.ClusterServiceDomain }}">
+                       value="{{ .Data.Config.Values.ClusterConfig.ClusterServiceDomain }}">
                 <small id="serviceDomainHelp" class="form-text text-muted">{{ index .Messages "cluster-service-domain.help"}}</small>
                 <br/>
                 <label for="net_select">{{ index .Messages "network-vm-strategy.description"}}</label>
                 <div class="form-group form-check" id="net_select">
-                    <input name="Cluster-NetType" type="radio" class="form-radio-input" id="net_select_bridged" value="Bridge" {{if .Data.Config.UseBridgedNetwork }}checked="true"{{end}} >
+                    <input name="Cluster-VMNet" type="radio" class="form-radio-input" id="net_select_bridged" value="Bridged" {{if eq .Data.Config.Values.ClusterConfig.ClusterVMNet.String "Bridged" }}checked="true"{{end}} >
                     <label class="form-check-label" for="net_select_bridged">{{ index .Messages "network-vm-strategy-bridged.label"}}</label>
                     <small id="net_select_bridgedHelp" class="form-text text-muted">{{ index .Messages "network-vm-strategy-bridged.help"}}</small>
-                    <div class="form-group form-check" id="bridged_ip_range">
-                        <label for="net_cidr">{{ index .Messages "network-bridge-cidr.label"}}</label>
-                        <input name="Node-NetBridgeCIDR" type="text" class="form-control" id="bridged_ip_range" aria-describedby="cidrHelp" placeholder="{{ index .Messages "network-bridge-cidr.placeholder"}}" value="{{ .Data.Config.Values.NodeNetBridgeCIDR}}">
-                    </div>
-                    <br/>
-                    <input name="Cluster-NetType" type="radio" class="form-radio-input" id="net_select_nat" value="NAT" {{if .Data.Config.UseNATNetwork }}checked="true"{{end}}>
+                    <label for="service_cidr">{{ index .Messages "cluster-service-cidr.label"}}</label>
+                    <input name="Cluster-NetCIDR" type="text" class="form-control" id="net_cidr" aria-describedby="netCidrHelp" placeholder="{{ index .Messages "cluster-net-cidr.placeholder"}}"
+                           value="{{ .Data.Config.Values.ClusterConfig.ClusterNetCIDR }}">
+                    <small id="netCidrHelp" class="form-text text-muted">{{ index .Messages "cluster-net-cidr.help"}}</small>
+                    <hr/>
+                    <input name="Cluster-VMNet" type="radio" class="form-radio-input" id="net_select_nat" value="NAT" {{if eq .Data.Config.Values.ClusterConfig.ClusterVMNet.String "NAT" }}checked="true"{{end}}>
                     <label class="form-check-label" for="net_select_nat">{{ index .Messages "network-vm-strategy-nat.label"}}</label>
                     <small id="net_select_bridgedHelp" class="form-text text-muted">{{ index .Messages "network-vm-strategy-nat.help"}}</small>
-
                     <label for="masterApiPort">{{ index .Messages "cluster-master-api-port.label"}}</label>
                     <input name="Cluster-MasterApiPort" type="text" class="form-control" id="masterApiPort" aria-describedby="masterApiPortHelp" placeholder="{{ index .Messages "cluster-master-api-port.placeholder"}}"
-                           value="{{ .Data.Config.Values.ClusterMasterApiPort }}">
+                           value="{{ .Data.Config.Values.ClusterConfig.ClusterMasterApiPort }}">
                     <small id="masterApiPortHelp" class="form-text text-muted">{{ index .Messages "cluster-master-api-port.help"}}</small>
                 </div>
             </div>
         {{end}}
-        <div class="form-group" id="nodeconfig">
-            <h2>{{ index .Messages "node-config.label"}}</h2>
-            <p>{{ index .Messages "node-config.description"}}</p>
-            <label for="net_nodeip">{{ index .Messages "node-ip.label"}}</label>
-            <input name="Node-NetNodeIP" type="text" class="form-control" id="net_nodeip" aria-describedby="nodeHelp" placeholder="{{ index .Messages "node-ip.placeholder"}}"
-               value="{{ .Data.Config.Values.NodeNetNodeIP }}">
-            <small id="nodeHelp" class="form-text text-muted">{{ index .Messages "node-ip.help"}}</small>
-            <br/>
-            <label for="masterselect">*{{ index .Messages "node-type.label"}}</label>
-            <div class="form-group form-check" id="masterselect">
-                <input name="Node-Type" type="radio" class="form-radio-input" id="nodetype_master" value="MasterNode" {{if .Data.Config.MasterNode }}checked="true"{{end}}>
-                <label class="form-check-label" for="exampleCheck1">{{ index .Messages "node-master.label"}}</label><br/>
-                <input name="Node-Type" type="radio" class="form-radio-input" id="nodetype_worker" value="WorkerNode" {{if .Data.Config.WorkerNode }}checked="true"{{end}}>
-                <label class="form-check-label" for="exampleCheck1">{{ index .Messages "node-worker.label"}}</label><br/>
-                <input name="Node-Type" type="radio" class="form-radio-input" id="nodetype_monitor" value="MonitorNode" {{if .Data.Config.MonitorNode }}checked="true"{{end}}>
-                <label class="form-check-label" for="exampleCheck1">{{ index .Messages "node-monitor.label"}}</label>
+        {{ if .Data.Config.Values.IsMasterNode }}
+            <div class="form-group" id="master-config">
+                <h2>{{ index .Messages "master-config.label"}}</h2>
+                <p>{{ index .Messages "master-config.description"}}</p>
+
+                <label for="master-net_nodename">{{ index .Messages "master-name.label"}}</label>
+                <input name="Master-Name" type="text" class="form-control" id="master-net_nodename" aria-describedby="masterNameHelp" placeholder="{{ index .Messages "master-name.placeholder"}}"
+                       value="{{ .Data.Config.Values.MasterNode.NodeName }}">
+                <small id="masterNameHelp" class="form-text text-muted">{{ index .Messages "master-name.help"}}</small>
+
+                <label for="master-net_nodeip">{{ index .Messages "master-ip.label"}}</label>
+                <input name="Master-NodeIP" type="text" class="form-control" id="net_nodeip" aria-describedby="masterIPHelp" placeholder="{{ index .Messages "node-ip.placeholder"}}"
+                       value="{{ .Data.Config.Values.MasterNode.NodeIP }}">
+                <small id="masterIPHelp" class="form-text text-muted">{{ index .Messages "master-ip.help"}}</small>
+
+                <label for="master-net_masterimage">{{ index .Messages "master-image.label"}}</label>
+                <input name="Master-Box" type="text" class="form-control" id="net_masterimage" aria-describedby="masterImageHelp" placeholder="{{ index .Messages "master-image.placeholder"}}"
+                       value="{{ .Data.Config.Values.MasterNode.NodeBox }}">
+                <small id="masterImageHelp" class="form-text text-muted">{{ index .Messages "master-image.help"}}</small>
+
+                <label for="master-net_nodeboxversion">{{ index .Messages "master-boxversion.label"}}</label>
+                <input name="Master-BoxVersion" type="text" class="form-control" id="master-net_boxVersion" aria-describedby="masterBoxVersionHelp" placeholder="{{ index .Messages "master-boxversion.placeholder"}}"
+                       value="{{ .Data.Config.Values.MasterNode.NodeBoxVersion }}">
+                <small id="masterBoxVersionHelp" class="form-text text-muted">{{ index .Messages "master-boxversion.help"}}</small>
+
+                <label for="master-net_nodememory">{{ index .Messages "master-memory.label"}}</label>
+                <input name="Master-Memory" type="text" class="form-control" id="net_mastermemory" aria-describedby="masterMemoryHelp" placeholder="{{ index .Messages "master-memory.placeholder"}}"
+                       value="{{ .Data.Config.Values.MasterNode.NodeMemory }}">
+                <small id="masterMemoryHelp" class="form-text text-muted">{{ index .Messages "master-memory.help"}}</small>
+
+                <label for="net_mastercpu">{{ index .Messages "master-cpu.label"}}</label>
+                <input name="Master-CPU" type="text" class="form-control" id="net_mastercpu" aria-describedby="masterCPUHelp" placeholder="{{ index .Messages "master-cpu.placeholder"}}"
+                       value="{{ .Data.Config.Values.MasterNode.NodeCPU }}">
+                <small id="masterCPUHelp" class="form-text text-muted">{{ index .Messages "master-cpu.help"}}</small>
+
             </div>
+        {{end}}
+        {{ if .Data.Config.Values.IsWorkerNode }}
+            <div class="form-group" id="worker-config">
+                <h2>{{ index .Messages "worker-config.label"}}</h2>
+                <p>{{ index .Messages "worker-config.description"}}</p>
 
-            <label for="net_nodeipr">{{ index .Messages "node-ip.label"}}</label>
-            <input name="Node-NetNodeIP" type="text" class="form-control" id="net_nodeip" aria-describedby="nodeIPHelp" placeholder="{{ index .Messages "node-ip.placeholder"}}"
-                   value="{{ .Data.Config.Values.NodeNetNodeIP }}">
-            <small id="nodeIPHelp" class="form-text text-muted">{{ index .Messages "node-ip.help"}}</small>
+                <label for="worker-net_nodename">{{ index .Messages "worker-name.label"}}</label>
+                <input name="Worker-Name" type="text" class="form-control" id="worker-net_nodename" aria-describedby="workerNameHelp" placeholder="{{ index .Messages "worker-name.placeholder"}}"
+                       value="{{ .Data.Config.Values.WorkerNode.NodeName }}">
+                <small id="workerNameHelp" class="form-text text-muted">{{ index .Messages "worker-name.help"}}</small>
 
-            <label for="net_nodename">{{ index .Messages "node-name.label"}}</label>
-            <input name="Node-Name" type="text" class="form-control" id="net_nodename" aria-describedby="nodeNameHelp" placeholder="{{ index .Messages "node-name.placeholder"}}"
-                   value="{{ .Data.Config.Values.NodeName }}">
-            <small id="nodeNameHelp" class="form-text text-muted">{{ index .Messages "node-name.help"}}</small>
+                <label for="worker-net_nodeip">{{ index .Messages "worker-ip.label"}}</label>
+                <input name="Worker-NodeIP" type="text" class="form-control" id="net_nodeip" aria-describedby="workerIPHelp" placeholder="{{ index .Messages "node-ip.placeholder"}}"
+                       value="{{ .Data.Config.Values.WorkerNode.NodeIP }}">
+                <small id="workerIPHelp" class="form-text text-muted">{{ index .Messages "worker-ip.help"}}</small>
 
-            <label for="net_nodeimage">{{ index .Messages "node-image.label"}}</label>
-            <input name="Node-Box" type="text" class="form-control" id="net_nodeimage" aria-describedby="nodeImageHelp" placeholder="{{ index .Messages "node-image.placeholder"}}"
-                   value="{{ .Data.Config.Values.NodeBox }}">
-            <small id="nodeImageHelp" class="form-text text-muted">{{ index .Messages "node-image.help"}}</small>
+                <label for="worker-net_image">{{ index .Messages "worker-image.label"}}</label>
+                <input name="Worker-Box" type="text" class="form-control" id="net_workerimage" aria-describedby="workerImageHelp" placeholder="{{ index .Messages "worker-image.placeholder"}}"
+                       value="{{ .Data.Config.Values.WorkerNode.NodeBox }}">
+                <small id="workerImageHelp" class="form-text text-muted">{{ index .Messages "worker-image.help"}}</small>
 
-            <label for="net_nodeboxversion">{{ index .Messages "node-boxversion.label"}}</label>
-            <input name="Node-BoxVersion" type="text" class="form-control" id="net_nodeBoxVersion" aria-describedby="nodeBoxVersionHelp" placeholder="{{ index .Messages "node-boxversion.placeholder"}}"
-                   value="{{ .Data.Config.Values.NodeBoxVersion }}">
-            <small id="nodeBoxVersionHelp" class="form-text text-muted">{{ index .Messages "node-boxversion.help"}}</small>
+                <label for="worker-net_nodeboxversion">{{ index .Messages "worker-boxversion.label"}}</label>
+                <input name="Worker-BoxVersion" type="text" class="form-control" id="worker-net_boxVersion" aria-describedby="workerBoxVersionHelp" placeholder="{{ index .Messages "worker-boxversion.placeholder"}}"
+                       value="{{ .Data.Config.Values.WorkerNode.NodeBoxVersion }}">
+                <small id="workerBoxVersionHelp" class="form-text text-muted">{{ index .Messages "worker-boxversion.help"}}</small>
 
-            <label for="net">{{ index .Messages "node-memory.label"}}</label>
-            <input name="Node-Memory" type="text" class="form-control" id="net_nodememory" aria-describedby="nodeMemoryHelp" placeholder="{{ index .Messages "node-memory.placeholder"}}"
-                   value="{{ .Data.Config.Values.NodeMemory }}">
-            <small id="nodeMemoryHelp" class="form-text text-muted">{{ index .Messages "node-memory.help"}}</small>
+                <label for="worker-net_nodememory">{{ index .Messages "worker-memory.label"}}</label>
+                <input name="Worker-Memory" type="text" class="form-control" id="net_workermemory" aria-describedby="workerMemoryHelp" placeholder="{{ index .Messages "worker-memory.placeholder"}}"
+                       value="{{ .Data.Config.Values.WorkerNode.NodeMemory }}">
+                <small id="workerMemoryHelp" class="form-text text-muted">{{ index .Messages "worker-memory.help"}}</small>
 
-            <label for="net">{{ index .Messages "node-cpu.label"}}</label>
-            <input name="Node-CPU" type="text" class="form-control" id="net_nodecpu" aria-describedby="nodeCPUHelp" placeholder="{{ index .Messages "node-cpu.placeholder"}}"
-                   value="{{ .Data.Config.Values.NodeCPU }}">
-            <small id="nodeMemoryHelp" class="form-text text-muted">{{ index .Messages "node-cpu.help"}}</small>
+                <label for="net_workercpu">{{ index .Messages "worker-cpu.label"}}</label>
+                <input name="Worker-CPU" type="text" class="form-control" id="net_workercpu" aria-describedby="workerCPUHelp" placeholder="{{ index .Messages "worker-cpu.placeholder"}}"
+                       value="{{ .Data.Config.Values.WorkerNode.NodeCPU }}">
+                <small id="workerCPUHelp" class="form-text text-muted">{{ index .Messages "worker-cpu.help"}}</small>
+            </div>
+        {{end}}
 
-        </div>
         <button name="action" type="submit" class="btn btn-primary" formaction="step1">{{ index .Messages "action.back-to-step-1.label"}}</button>
         <button name="action" type="submit" class="btn btn-primary" formaction="step3">{{ index .Messages "action.continue-to-step-3.label"}}</button>
     </form>

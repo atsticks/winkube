@@ -16,116 +16,136 @@
 # vi: set ft=ruby :
 
 servers = [
-{{with .NodeConfig}}
-    {{if eq .NodeType.String "MasterNode"}}
+{{range .NodeConfigs}}
         {
             :name => "{{.Name}}",
-            :type => "master",
+            {{if eq .NodeType.String "MasterNode"}}:type => "master"{{else}}:type => "worker"{{end}},
             :box => "{{.Box}}",
             :box_version => "{{.BoxVersion}}",
             :ip => "{{.Ip}}",
             :mem => "{{.Memory}}",
-            :cpu => "{{.Cpu}}"
+            :cpu => "{{.Cpu}}",
+            :network => "{{.NetType}}"
         },
-    {{end}}
-    {{ if eq .NodeType.String "WorkerNode" }}
-        {
-                :name => "{{.Name}}",
-                :type => "worker",
-                :box => "{{.Box}}",
-                :box_version => "{{.BoxVersion}}",
-                :ip => "{{.Ip}}",
-                :mem => "{{.Memory}}",
-                :cpu => "{{.Cpu}}"
-            }
-    {{end}}
 {{end}}
 ]
 
 # This script to install k8s using kubeadm will get executed after a box is provisioned
 $configureBox = <<-SCRIPT
 
-	apt-get update
+	apt-get -y update
 
-    # install docker v17.03
-    # reason for not using docker provision is that it always installs latest version of the docker, but kubeadm requires 17.03 or older
-    
-    apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+    echo "Enable br_netfilter"
+    echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables
+
+    echo "install Docker..."
+    ## Set up the repository:
+    ### Install packages to allow apt to use a repository over HTTPS
+    apt-get -y update && apt-get -y install apt-transport-https ca-certificates curl software-properties-common
+
+    ### Add Docker’s official GPG key
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
-    add-apt-repository "deb https://download.docker.com/linux/$(. /etc/os-release; echo "$ID") $(lsb_release -cs) stable"
-    apt-get update && apt-get install -y docker-ce=$(apt-cache madison docker-ce | grep 17.03 | head -1 | awk '{print $3}')
+
+    ### Add Docker apt repository.
+    add-apt-repository \
+      "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+      $(lsb_release -cs) \
+      stable"
+
+    ## Install Docker CE.
+    apt-get -y update && apt-get -y install docker-ce=18.06.2~ce~3-0~ubuntu
+
+    mkdir -p /etc/systemd/system/docker.service.d
+
+    # Restart docker.
+    systemctl daemon-reload
+    systemctl restart docker
+
+    systemctl daemon-reload
+    systemctl enable docker
+    sed -i '/^ExecStart/ s/$/ --exec-opt native.cgroupdriver=systemd/' /usr/lib/systemd/system/docker.service
+    systemctl start docker
 
     # run docker commands as vagrant user (sudo not required)
-                                  usermod -aG docker vagrant
+    usermod -aG docker vagrant
 
-    # install kubeadm
-    apt-get install -y apt-transport-https curl
+    echo "install kubeadm..."
+    apt-get -y install apt-transport-https curl
     curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
     cat <<EOF >/etc/apt/sources.list.d/kubernetes.list
     deb http://apt.kubernetes.io/ kubernetes-xenial main
 	
 EOF
-    apt-get update
-    apt-get install -y kubelet kubeadm kubectl
+    apt-get -y update
+    apt-get -y install kubelet kubeadm kubectl
     apt-mark hold kubelet kubeadm kubectl
+
+    echo "Enable br_netfilter"
+    echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables
 
     # kubelet requires swap off
     swapoff -a
-
-    # keep swap off after reboot
     sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
 
-    # ip of this box
-    IP_ADDR=`ifconfig enp0s8 | grep Mask | awk '{print $2}'| cut -f2 -d:`
-	
-    # set node-ip
-    sudo sed -i "/^[^#]*KUBELET_EXTRA_ARGS=/c\KUBELET_EXTRA_ARGS=--node-ip=$IP_ADDR" /etc/default/kubelet
+	# Turn on iptables bridge calls
+	echo "net.bridge.bridge-nf-call-iptables=1" | sudo tee -a /etc/sysctl.conf
+    sudo sysctl -p
+
+
     sudo systemctl restart kubelet
+
+    echo "**** Network Config: ****"
+    IP_ADDR=`ifconfig enp0s8 | grep Mask | awk '{print $2}'| cut -f2 -d:`
+    echo $(IP_ADDR)
+
 SCRIPT
 
 $configureMaster = <<-SCRIPT
-    echo "This is master"
+    echo "Starting Kubernetes master..."
     IP_ADDR=`ifconfig enp0s8 | grep Mask | awk '{print $2}'| cut -f2 -d:`
-    
-    # install k8s master
-    HOST_NAME=$(hostname -s)
-    # removed: --apiserver-cert-extra-sans=$IP_ADDR
-    kubeadm init --apiserver-advertise-address=$IP_ADDR --node-name {{.NodeConfig.Name}} --pod-network-cidr={{.PodNetCIDR}} {{ if .ServiceNetCIDR}}--service-network-cidr={{.ServiceNetCIDR}} {{end}} --apiserver-bind-port={{.ApiServerBindPort}} --service-dns-domain={{.ServiceDNSDomain}}
+    kubeadm init --apiserver-advertise-address=$(IP_ADDR) --pod-network-cidr={{.PodNetCIDR}} {{ if .NetCIDR}}--service-cidr={{.NetCIDR}} {{end}} --apiserver-bind-port={{.ApiServerBindPort}} --service-dns-domain={{.ServiceDNSDomain}}
 
+    echo "Initializing kubectl..."
     # copying credentials to regular user - vagrant
     sudo --user=vagrant mkdir -p /home/vagrant/.kube
     cp -i /etc/kubernetes/admin.conf /home/vagrant/.kube/config
     chown $(id -u vagrant):$(id -g vagrant) /home/vagrant/.kube/config
 
-    # install Calico pod network addon
     export KUBECONFIG=/etc/kubernetes/admin.conf
-    kubectl apply -f https://raw.githubusercontent.com/ecomm-integration-ballerina/kubernetes-cluster/master/calico/rbac-kdd.yaml
-    kubectl apply -f https://raw.githubusercontent.com/ecomm-integration-ballerina/kubernetes-cluster/master/calico/calico.yaml
 
+    # echo "Installing Calico pod network addonr..."
+    # kubectl apply -f https://raw.githubusercontent.com/ecomm-integration-ballerina/kubernetes-cluster/master/calico/rbac-kdd.yaml
+    # kubectl apply -f https://raw.githubusercontent.com/ecomm-integration-ballerina/kubernetes-cluster/master/calico/calico.yaml
+
+    echo "Installing Flannel..."
+    kubectl convert -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml | kubectl create -f -:q:
+
+    echo "Creating Kubernetes Join Token..."
+    kubeadm token create >> /etc/kubeadm_join_token
+    cp /etc/kubeadm_join_token /home/vagrant/token/kubeadm_join_token
     kubeadm token create --print-join-command >> /etc/kubeadm_join_cmd.sh
+    cp /etc/kubeadm_join_cmd.sh /home/vagrant/token/kubeadm_join_cmd.sh
     chmod +x /etc/kubeadm_join_cmd.sh
 
     # required for setting up password less ssh between guest VMs
     sudo sed -i "/^[^#]*PasswordAuthentication[[:space:]]no/c\PasswordAuthentication yes" /etc/ssh/sshd_config
     sudo service sshd restart
-    {{ if eq .NetType.String "NAT" }}
-    # when using NAT/port forwarding instead of bridged mode:
-    config.vm.network :forwarded_port, guest: {{.ApiServerBindPort}}, host: {{.ApiServerBindPort}}
-    {{end}}
+
+    echo "Checking Kubernetes state..."
+    echo $(kubectl get nodes)
+    echo "Kubernetes master started."
 SCRIPT
 
-$configureNode = <<-SCRIPT
-    echo "This is worker"
-    apt-get install -y sshpass
-    sshpass -p "vagrant" scp -o StrictHostKeyChecking=no vagrant@192.168.205.10:/etc/kubeadm_join_cmd.sh .
-    sh ./kubeadm_join_cmd.sh
-    # when using NAT/port forwarding instead of bridged mode:
-     {{ if eq .NetType.String "NAT" }}
-    config.vm.network :forwarded_port, guest: 10250, host: 10250
-    for i in 30000..32767
-        config.vm.network :forwarded_port, guest: i, host: i
-    end
-    {{end}}
+$configureWorker = <<-SCRIPT
+    echo "Starting Kubernetes Worker..."
+    echo "Joining Kubernetes cluster..."
+    # Join cluster, file should be mapped from host
+    sudo kubeadm join {{.PublicMasterIp}} {{.MasterToken}}
+    # chmod +x /home/vagrant/token/kubeadm_join_cmd.sh
+    # sh /home/vagrant/token/kubeadm_join_cmd.sh
+    # sudo kubeadm join $some_ip:6443 --token $some_token --discovery-token-ca-cert-hash $some_hash
+
+    echo "Kubernetes worker started."
 SCRIPT
 
 $configureAnsible = <<-SCRIPT
@@ -133,7 +153,7 @@ $configureAnsible = <<-SCRIPT
 	# Install ansible
 	sudo apt-get -y install software-properties-common
 	sudo apt-add-repository ppa:ansible/ansible
-	sudo apt-get update
+	sudo apt-get -y update
 	sudo apt-get -y install ansible
     sudo ansible-galaxy install ahuffman.hosts
 	sudo chmod 775 /vagrant
@@ -148,14 +168,14 @@ Vagrant.configure("2") do |config|
             config.vm.box = opts[:box]
             config.vm.box_version = opts[:box_version]
             config.vm.hostname = opts[:name]
- {{ if eq .NetType.String "NAT" }}
-            config.vm.network "private_network"
-              virtualbox__intnet: "WinKubeNet", ip: opts[:ip]
-{{end}}
- {{ if eq .NetType.String "Bridge" }}
-            config.vm.network "public_network", bridge: {{ .BridgeInterface}}, ip: opts[:ip], use_dhcp_assigned_default_route: true
-{{end}}
+            if opts[:network] == "NAT"
+                config.vm.network "public_network", ip: opts[:ip]
+            end
+            if opts[:network] == "Bridged"
+                config.vm.network "public_network", bridge: {{ .HostInterface}}, ip: opts[:ip], use_dhcp_assigned_default_route: true
+            end
 			config.vm.synced_folder "./ansible", "/home/vagrant/ansible",  mount_options: ["dmode=775"]
+			config.vm.synced_folder "./token", "/home/vagrant/token",  mount_options: ["dmode=775"]
 
             config.vm.provider "virtualbox" do |v|
 
@@ -172,24 +192,38 @@ Vagrant.configure("2") do |config|
 			config.vm.provision "shell", inline: $configureBox
 			
             if opts[:type] == "master"
+                if opts[:network] == "NAT"
+                    # when using NAT we have to forward the relevant Kubernetes Master ports.
+                    config.vm.network :forwarded_port, guest: {{.ApiServerBindPort}}, host: {{.ApiServerBindPort}}
+                end
                 config.vm.provision "shell", inline: $configureMaster
-				config.vm.provision "ansible_local" do |ansible|
-				  ansible.install        = false
-				  ansible.become        = true
-				  ansible.compatibility_mode = "auto"
-				  # ansible.limit          = "all"
-				  ansible.playbook = "config/master.yml"
-			    end
-            else
-                config.vm.provision "shell", inline: $configureNode
-				config.vm.provision "ansible_local" do |ansible|
-				  ansible.install        = false
-				  ansible.become        = true
-				  ansible.compatibility_mode = "auto"
-				  # ansible.limit          = "all"
-				  ansible.playbook = "config/node.yml"
-			    end
+				# config.vm.provision "ansible_local" do |ansible|
+				#   ansible.install        = false
+				#   ansible.become        = true
+				#   ansible.compatibility_mode = "auto"
+				#   # ansible.limit          = "all"
+				#   ansible.playbook = "config/master.yml"
+			    # end
+            else if opts[:type] == "worker"
+                if opts[:network] == "NAT"
+                    # when using NAT we have to forward the relevant Kubernetes Worker ports.
+                    config.vm.network :forwarded_port, guest: 4149, host: 4149
+                    config.vm.network :forwarded_port, guest: 10250, host: 10250
+                    config.vm.network :forwarded_port, guest: 10255, host: 10255
+                    config.vm.network :forwarded_port, guest: 10256, host: 10256
+                    config.vm.network :forwarded_port, guest: 9099, host: 9099     # calico
+                    config.vm.network :forwarded_port, guest: 8285, host: 8285     # flannel
+                end
+                config.vm.provision "shell", inline: $configureWorker
+				# config.vm.provision "ansible_local" do |ansible|
+				#   ansible.install        = false
+				#   ansible.become        = true
+				#   ansible.compatibility_mode = "auto"
+				#   # ansible.limit          = "all"
+				#   ansible.playbook = "config/node.yml"
+			    # end
             end
         end
     end
+end
 end

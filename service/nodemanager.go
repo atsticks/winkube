@@ -17,10 +17,10 @@ package service
 import (
 	"bufio"
 	"fmt"
+	"github.com/winkube/service/netutil"
 	"github.com/winkube/util"
 	"gopkg.in/go-playground/validator.v9"
 	"os"
-	"strconv"
 	"strings"
 )
 
@@ -32,45 +32,90 @@ type VagrantNode struct {
 	Ip         string   `validate:"required,ip"`
 	Memory     int      `validate:"required,gte=1024"`
 	Cpu        int      `validate:"required,gte=1"`
+	NetType    string   `validate:"required"`
 }
 type VagrantConfig struct {
-	ServiceNetCIDR    string
-	PodNetCIDR        string      `validate:"required"`
-	NodeConfig        VagrantNode `validate:"required"`
-	ApiServerBindPort int         `validate:"required,gte=1"`
-	ServiceDNSDomain  string      `validate:"required"`
-	BridgeInterface   string      `validate:"required"`
-	NetType           NodeNetType `validate:"required"`
+	NetCIDR           string
+	PodNetCIDR        string        `validate:"required"`
+	NodeConfigs       []VagrantNode `validate:"required"`
+	ApiServerBindPort int           `validate:"required,gte=1"`
+	ServiceDNSDomain  string        `validate:"required"`
+	HostInterface     string        `validate:"required"`
+	HostIp            string        `validate:"required"`
+	NetType           VMNetType     `validate:"required"`
+	LocalMasterIp     string        `validate:"required"`
+	PublicMasterIp    string        `validate:"required"`
+	MasterToken       string        `validate:"required"`
 }
 
 func vagrantNodeValidation(sl validator.StructLevel) {
 
 	config := sl.Current().Interface().(VagrantNode)
 
-	if config.NodeType != MasterNode && config.NodeType != WorkerNode {
-		sl.ReportError(config.NodeType, "NodeType", "IsMaster", "NodeType must be either MasterNode or WorkerNode", "")
+	if config.NodeType != Master && config.NodeType != Worker {
+		sl.ReportError(config.NodeType, "NodeType", "IsMaster", "NodeType must be either Master or Worker", "")
 	}
 }
 
-func createVagrantConfig(appConfig *AppConfiguration) VagrantConfig {
+func createVagrantConfig(appConfig *SystemConfiguration) VagrantConfig {
+	clusterConfig := Container().Config.ClusterConfig
 	config := VagrantConfig{
-		ServiceNetCIDR:    appConfig.ClusterServiceCIDR,
-		PodNetCIDR:        appConfig.ClusterPodCIDR,
-		ApiServerBindPort: appConfig.ClusterMasterApiPort,
-		ServiceDNSDomain:  appConfig.ClusterServiceDomain,
-		BridgeInterface:   appConfig.NetHostInterface,
-		NetType:           appConfig.NodeNetType,
-		NodeConfig: VagrantNode{
-			Name:       appConfig.NodeName + "-" + strconv.Itoa(appConfig.NodeIndex),
-			Box:        appConfig.NodeBox,
-			BoxVersion: appConfig.NodeBoxVersion,
-			Ip:         appConfig.NodeNetNodeIP,
-			Memory:     appConfig.NodeMemory,
-			Cpu:        appConfig.NodeCPU,
-			NodeType:   appConfig.NodeType,
-		},
+		NetCIDR:           clusterConfig.ClusterNetCIDR,
+		PodNetCIDR:        clusterConfig.ClusterPodCIDR,
+		ApiServerBindPort: clusterConfig.ClusterMasterApiPort,
+		ServiceDNSDomain:  clusterConfig.ClusterServiceDomain,
+		HostInterface:     appConfig.NetHostInterface,
+		HostIp:            appConfig.GetHostIp(),
+		NetType:           clusterConfig.ClusterVMNet,
+		PublicMasterIp:    clusterConfig.ClusterMasterIp,
+		NodeConfigs:       createNodeConfigs(appConfig.ClusterLogin.ClusterId, appConfig.MasterNode, appConfig.WorkerNode, clusterConfig.ClusterVMNet),
+	}
+	if appConfig.MasterNode != nil {
+		config.LocalMasterIp = appConfig.MasterNode.NodeIP
 	}
 	return config
+}
+
+func createNodeConfigs(clusterId string, masterNode *LocalNodeConfig, workerNode *LocalNodeConfig, net VMNetType) []VagrantNode {
+	var result []VagrantNode
+	if masterNode != nil {
+		node := VagrantNode{
+			Name:       clusterId + "-" + masterNode.NodeType.String() + "-" + hostname(),
+			Box:        masterNode.NodeBox,
+			BoxVersion: masterNode.NodeBoxVersion,
+			Ip:         getNodeIp(masterNode.NodeIP, true),
+			Memory:     masterNode.NodeMemory,
+			Cpu:        masterNode.NodeCPU,
+			NodeType:   masterNode.NodeType,
+			NetType:    net.String(),
+		}
+		result = append(result, node)
+	}
+	if workerNode != nil {
+		node := VagrantNode{
+			Name:       clusterId + "-" + workerNode.NodeType.String() + "-" + hostname(),
+			Box:        workerNode.NodeBox,
+			BoxVersion: workerNode.NodeBoxVersion,
+			Ip:         getNodeIp(workerNode.NodeIP, false),
+			Memory:     workerNode.NodeMemory,
+			Cpu:        workerNode.NodeCPU,
+			NodeType:   workerNode.NodeType,
+			NetType:    net.String(),
+		}
+		result = append(result, node)
+	}
+	return result
+}
+
+func getNodeIp(ip string, master bool) string {
+	clusterManager := *Container().ClusterManager
+	if ip != "" {
+		return ip
+	}
+	if clusterManager.GetClusterConfig().ClusterVMNet == Bridged {
+		return (*clusterManager.GetController()).ReserveNodeIP(master)
+	}
+	return (*clusterManager.GetController()).ReserveInternalIP(master)
 }
 
 type NodeManager interface {
@@ -80,6 +125,7 @@ type NodeManager interface {
 	StartNode() *Action
 	StopNode() *Action
 	DestroyNode() *Action
+	netutil.ServiceProvider
 }
 
 type nodeManager struct {
@@ -111,7 +157,7 @@ func (this nodeManager) ValidateConfig() (*VagrantConfig, error) {
 	return &vagrantConfig, this.configValidator.Struct(vagrantConfig)
 }
 
-func (this nodeManager) createVagrantConfig(config *AppConfiguration) (*VagrantConfig, error) {
+func (this nodeManager) createVagrantConfig(config *SystemConfiguration) (*VagrantConfig, error) {
 	vagrantConfig := createVagrantConfig(config)
 	// validate config
 	err := this.configValidator.Struct(vagrantConfig)
@@ -121,8 +167,38 @@ func (this nodeManager) createVagrantConfig(config *AppConfiguration) (*VagrantC
 	return &vagrantConfig, err
 }
 
+func (this nodeManager) GetServices() []netutil.Service {
+	config := Container().Config
+	var result []netutil.Service
+	if config.Ready() {
+		if config.MasterNode != nil {
+			result = append(result, netutil.Service{
+				AdType:   WINKUBE_ADTYPE,
+				Id:       config.Id,
+				Location: config.MasterNode.NodeIP + ":9999",
+				Service:  "Master:" + config.ClusterLogin.ClusterId,
+				Version:  WINKUBE_VERSION,
+				Server:   util.RuntimeInfo(),
+				MaxAge:   5,
+			})
+		}
+		if config.WorkerNode != nil {
+			result = append(result, netutil.Service{
+				AdType:   WINKUBE_ADTYPE,
+				Id:       config.Id,
+				Location: config.WorkerNode.NodeIP + ":9999",
+				Service:  "Master:" + config.ClusterLogin.ClusterId,
+				Version:  WINKUBE_VERSION,
+				Server:   util.RuntimeInfo(),
+				MaxAge:   5,
+			})
+		}
+	}
+	return result
+}
+
 func (this nodeManager) Initialize(override bool) *Action {
-	actionManager := (Container().ActionManager)
+	actionManager := (*GetActionManager())
 	action := actionManager.StartAction("Initialize Node")
 	if util.FileExists("Vagrantfile") {
 		if override {
@@ -134,8 +210,9 @@ func (this nodeManager) Initialize(override bool) *Action {
 				for scanner.Scan() {
 					text := (scanner.Text())
 					fmt.Printf("\t%s\n", text)
-					actionManager.LogAction(action.Id, text)
+					actionManager.LogAction(action.Id, fmt.Sprintf("%s\n", text))
 				}
+				// TODO Collect any master token and extend the cluster config accordingly.
 				actionManager.LogAction(action.Id, "\n")
 			} else {
 				return actionManager.CompleteWithError(action.Id, err)
@@ -170,7 +247,7 @@ func (this nodeManager) Initialize(override bool) *Action {
 }
 
 func (this nodeManager) StartNode() *Action {
-	actionManager := (Container().ActionManager)
+	actionManager := (*GetActionManager())
 	action := actionManager.StartAction("Start Node")
 	go func() {
 		if util.FileExists("Vagrantfile") {
@@ -182,7 +259,7 @@ func (this nodeManager) StartNode() *Action {
 				for scanner.Scan() {
 					text := (scanner.Text())
 					fmt.Printf("\t%s\n", text)
-					actionManager.LogAction(action.Id, text)
+					actionManager.LogAction(action.Id, fmt.Sprintf("%s\n", text))
 				}
 				actionManager.LogAction(action.Id, "\n")
 			}
@@ -195,7 +272,7 @@ func (this nodeManager) StartNode() *Action {
 }
 
 func (this nodeManager) StopNode() *Action {
-	actionManager := (Container().ActionManager)
+	actionManager := (*GetActionManager())
 	action := actionManager.StartAction("Stop Node")
 	go func() {
 		if util.FileExists("Vagrantfile") {
@@ -207,7 +284,7 @@ func (this nodeManager) StopNode() *Action {
 				for scanner.Scan() {
 					text := (scanner.Text())
 					fmt.Printf("\t%s\n", text)
-					actionManager.LogAction(action.Id, text)
+					actionManager.LogAction(action.Id, fmt.Sprintf("%s\n", text))
 				}
 				actionManager.LogAction(action.Id, "\n")
 			}
@@ -220,7 +297,7 @@ func (this nodeManager) StopNode() *Action {
 }
 
 func (this nodeManager) DestroyNode() *Action {
-	actionManager := (Container().ActionManager)
+	actionManager := *GetActionManager()
 	action := actionManager.StartAction("Destroy Node")
 	go func() {
 		if util.FileExists("Vagrantfile") {
@@ -232,7 +309,7 @@ func (this nodeManager) DestroyNode() *Action {
 				for scanner.Scan() {
 					text := (scanner.Text())
 					fmt.Printf("\t%s\n", text)
-					actionManager.LogAction(action.Id, text)
+					actionManager.LogAction(action.Id, fmt.Sprintf("%s\n", text))
 				}
 				actionManager.LogAction(action.Id, "\n")
 			}

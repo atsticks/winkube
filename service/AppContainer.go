@@ -32,6 +32,7 @@ var container *AppContainer
 var once sync.Once
 
 const WINKUBE_ADTYPE = "winkube-service"
+const WINKUBE_VERSION = "0.1"
 
 type AppStatus int
 
@@ -52,18 +53,22 @@ func Container() *AppContainer {
 	return container
 }
 
+func Log() *log.Logger {
+	return Container().Logger
+}
+
 func Start() {
 	container = &AppContainer{
-		Logger:            Logger(),
-		Config:            Config(),
-		Router:            Router(),
+		Logger:            logger(),
+		Config:            config(),
+		Router:            router(),
 		NodeManager:       createNodeManager(),
 		CurrentStatus:     APPSTATE_INITIALIZING,
 		RequiredAppStatus: APPSTATE_RUNNING,
 	}
-	container.ActionManager = CreateActionManager()
-	container.ServiceProvider = CreateServiceProvider(container.Config)
-	container.ServiceRegistry = ServiceRegistry(container.ServiceProvider, WINKUBE_ADTYPE)
+	var sp netutil.ServiceProvider = *container.NodeManager
+	container.ServiceProvider = &sp
+	container.ServiceRegistry = serviceRegistry(container.ServiceProvider, WINKUBE_ADTYPE)
 	container.ClusterManager = CreateClusterManager(container.ServiceRegistry)
 	container.CurrentStatus = APPSTATE_INITIALIZED
 	container.Logger.Info("WinKube is initialized, continue...")
@@ -74,13 +79,12 @@ type AppContainer struct {
 	StartupDuration   time.Duration
 	Logger            *log.Logger
 	MessageCatalog    *catalog.Builder
-	Config            *AppConfiguration
+	Config            *SystemConfiguration
 	ServiceProvider   *netutil.ServiceProvider
 	Router            *mux.Router
 	ServiceRegistry   *netutil.ServiceRegistry
 	ClusterManager    *ClusterManager
 	NodeManager       *NodeManager
-	ActionManager     ActionManager
 	CurrentStatus     AppStatus
 	RequiredAppStatus AppStatus
 }
@@ -94,26 +98,13 @@ func (this AppContainer) MessagePrinter(language language.Tag) *message.Printer 
 }
 
 type DefaultServiceProvider struct {
-	config *AppConfiguration
+	config *SystemConfiguration
 }
 
-func (this DefaultServiceProvider) GetServices() []netutil.Service {
-	// TODO implement on base of config and effective state of setup on this machine
-	return []netutil.Service{}
+func config() *SystemConfiguration {
+	return InitAppConfig()
 }
-
-// Dependeny Injection Module, provides logger and more...
-func CreateServiceProvider(config *AppConfiguration) *netutil.ServiceProvider {
-	log.Info("Initializing service provider...")
-	var sp netutil.ServiceProvider = DefaultServiceProvider{
-		config: config,
-	}
-	return &sp
-}
-func Config() *AppConfiguration {
-	return CreateAppConfig("winkube.config", 1)
-}
-func Logger() *log.Logger {
+func logger() *log.Logger {
 	fmt.Println("Initializing logging...")
 	//log.SetFormatter(&log.JSONFormatter{}) // Log as JSON instead of the default ASCII formatter.
 	log.SetFormatter(util2.NewPlainFormatter())
@@ -134,12 +125,12 @@ func Logger() *log.Logger {
 	fmt.Println("Working directory: " + dir)
 	return log.StandardLogger()
 }
-func Router() *mux.Router {
+func router() *mux.Router {
 	log.Info("Initializing web application...")
 	r := mux.NewRouter()
 	return r
 }
 
-func ServiceRegistry(serviceProvider *netutil.ServiceProvider, adType string) *netutil.ServiceRegistry {
+func serviceRegistry(serviceProvider *netutil.ServiceProvider, adType string) *netutil.ServiceRegistry {
 	return netutil.InitServiceRegistry(adType, serviceProvider)
 }

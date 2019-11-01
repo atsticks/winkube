@@ -234,10 +234,6 @@ func (this serviceRegistry) StartUPnP(serviceProvider *ServiceProvider, port int
 	this.advertizing = true
 
 	if this.serviceProvider != nil {
-		services := this.serviceProvider
-		if this.verbose {
-			log.Infoln("[SSDP] advertizing services: ", services)
-		}
 		for _, service := range (*this.serviceProvider).GetServices() {
 			usedAdvertisers := []string{}
 			advertizer, err := ssdp.Advertise(service.ST(), service.USN(), service.Location, service.Server,
@@ -318,8 +314,8 @@ func (this serviceRegistry) keepAliveLoop() {
 						adv.Close()
 					}
 				}
-				time.Sleep(11 * time.Second)
 			}
+			time.Sleep(11 * time.Second)
 		}
 	}
 }

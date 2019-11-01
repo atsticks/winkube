@@ -20,6 +20,7 @@ import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"reflect"
@@ -202,4 +203,12 @@ func ReadProperties(filename string) (Properties, error) {
 	}
 
 	return config, nil
+}
+
+func ParseURL(urlString string) *url.URL {
+	urlParsed, err := url.ParseRequestURI(urlString)
+	if err != nil {
+		fmt.Println("Failed to parse URL from  %v, error: %v", urlString, err)
+	}
+	return urlParsed
 }

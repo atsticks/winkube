@@ -32,6 +32,16 @@ type Action struct {
 	log         *bytes.Buffer
 }
 
+var instance ActionManager
+
+func init() {
+	instance = CreateActionManager()
+}
+
+func GetActionManager() *ActionManager {
+	return &instance
+}
+
 func (this Action) Log() string {
 	return this.log.String()
 }

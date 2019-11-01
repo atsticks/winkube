@@ -20,7 +20,6 @@ package service
 import (
 	"fmt"
 	"github.com/gorilla/mux"
-	log "github.com/sirupsen/logrus"
 	"github.com/winkube/util"
 	"github.com/winkube/webapp"
 	"golang.org/x/text/language"
@@ -31,7 +30,7 @@ import (
 )
 
 func SetupWebApplication(router *mux.Router) *webapp.WebApplication {
-	log.Info("Initializing setup...")
+	Log().Info("Initializing setup...")
 	setupWebapp := webapp.CreateWebApp("WinKube-Setup", "/setup", language.English)
 	// Pages
 	setupWebapp.AddPage(&webapp.Page{
@@ -48,16 +47,16 @@ func SetupWebApplication(router *mux.Router) *webapp.WebApplication {
 		Template: "templates/setup/step3.html",
 	})
 	// Actions
-	setupWebapp.SetAction("/", IndexAction)
-	setupWebapp.SetAction("/step1", Step1Action)
-	setupWebapp.SetAction("/step2", Step2Action)
-	setupWebapp.SetAction("/step3", Step3Action)
-	setupWebapp.SetAction("/install", InstallConfigAction)
+	setupWebapp.GetAction("/", IndexAction)
+	setupWebapp.GetAction("/step1", Step1Action)
+	setupWebapp.PostAction("/step2", Step2Action)
+	setupWebapp.PostAction("/step3", Step3Action)
+	setupWebapp.PostAction("/install", InstallConfigAction)
 	return setupWebapp
 }
 
 type ConfigBean struct {
-	Values            *AppConfiguration
+	Values            *SystemConfiguration
 	UseBridgedNetwork bool
 	UseNATNetwork     bool
 }
@@ -67,137 +66,224 @@ func readConfig(context *webapp.RequestContext) ConfigBean {
 	bean := ConfigBean{
 		Values: Container().Config,
 	}
-	if context.GetParameter("UseExistingCluster") != "" {
-		Container().Config.UseExistingCluster =
-			util.ParseBool(context.GetParameter("UseExistingCluster"))
+	config := Container().Config
+	if context.GetParameter("ClusterLogin-ClusterState-Id") != "" {
+		config.ClusterLogin.ClusterId =
+			context.GetParameter("ClusterLogin-ClusterState-Id")
 	}
+	if context.GetParameter("ClusterLogin-ClusterState-Credentials") != "" {
+		config.ClusterLogin.ClusterCredentials =
+			context.GetParameter("ClusterLogin-ClusterState-Credentials")
+	}
+	// controller
+	if context.GetParameter("IsController") != "" {
+		config.ClusterConfig.LocallyManaged =
+			util.ParseBool(context.GetParameter("IsController"))
+		readClusterConfig(config.ClusterConfig, context)
+		config.ClusterLogin.ClusterId = config.ClusterConfig.ClusterId
+		config.ClusterLogin.ClusterCredentials = config.ClusterConfig.ClusterCredentials
+		Log().Debug("In: ClusterConfig.LocallyManaged = " + strconv.FormatBool(config.ClusterConfig.LocallyManaged))
+		Log().Debug("Applied: ClusterLogin based on current ClusterConfig")
+	}
+	readNetConfig(config, context)
+	readNodeConfig(config, context)
+	bean.UseBridgedNetwork = config.ClusterConfig.ClusterVMNet == Bridged
+	bean.UseNATNetwork = config.ClusterConfig.ClusterVMNet == NAT
+	return bean
+}
+
+func readNodeConfig(config *SystemConfiguration, context *webapp.RequestContext) {
+	if context.GetParameter("IsMaster") != "" && config.MasterNode == nil {
+		config.MasterNode = &LocalNodeConfig{
+			NodeConfig: NodeConfig{
+				NodeName:   "WinKube-" + config.ClusterLogin.ClusterId + "-Master",
+				NodeType:   Master,
+				NodeMemory: 2048,
+				NodeCPU:    2,
+			},
+			NodeBox:        "ubuntu/xenial64",
+			NodeBoxVersion: "20180831.0.0",
+		}
+	}
+	readLocalNodeConfig(config.MasterNode, context, "master-")
+
+	if context.GetParameter("IsWorker") != "" && config.WorkerNode == nil {
+		config.WorkerNode = &LocalNodeConfig{
+			NodeConfig: NodeConfig{
+				NodeName:   "WinKube-" + config.ClusterLogin.ClusterId + "-Worker",
+				NodeType:   Worker,
+				NodeMemory: 2048,
+				NodeCPU:    2,
+			},
+			NodeBox:        "ubuntu/xenial64",
+			NodeBoxVersion: "20180831.0.0",
+		}
+	}
+	readLocalNodeConfig(config.WorkerNode, context, "worker-")
+}
+
+func readNetConfig(config *SystemConfiguration, context *webapp.RequestContext) {
 	if context.GetParameter("Net-MulticastEnabled") != "" {
-		Container().Config.NetMulticastEnabled =
+		config.NetMulticastEnabled =
 			util.ParseBool(context.GetParameter("Net-MulticastEnabled"))
+		Log().Debug("In: Net-MulticastEnabled = " + strconv.FormatBool(config.NetMulticastEnabled))
 	}
 	if context.GetParameter("Net-UPnPPort") != "" {
 		upnpPort, err := strconv.Atoi(context.GetParameter("Net-UPnPPort"))
 		if err != nil {
 			upnpPort = 1900
 		}
-		Container().Config.NetUPnPPort = upnpPort
+		config.NetUPnPPort = upnpPort
+		Log().Debug("In: Net-UPnpPort = " + strconv.Itoa(config.NetUPnPPort))
 	}
-	if context.GetParameter("Net-LookupMasters") != "" {
-		Container().Config.NetLookupMasters =
-			context.GetParameter("Net-LookupMasters")
+	if context.GetParameter("Net-LookupMaster") != "" {
+		config.NetLookupMaster =
+			context.GetParameter("Net-LookupMaster")
+		Log().Debug("In: Net-LookupMaster = " + config.NetLookupMaster)
 	}
 	if context.GetParameter("Net-Interface") != "" {
-		Container().Config.NetHostInterface =
+		config.NetHostInterface =
 			context.GetParameter("Net-Interface")
+		Log().Debug("In: Net-Interface = " + config.NetHostInterface)
 	}
-	if context.GetParameter("Cluster-ID") != "" {
-		Container().Config.ClusterID =
-			context.GetParameter("Cluster-ID")
+	if config.ClusterConfig.ClusterVMNet == UndefinedNetType {
+		config.ClusterConfig.ClusterVMNet = NAT
+		Log().Debug("Applied: ClusterConfig-VMNet = " + config.ClusterConfig.ClusterVMNet.String())
 	}
-	if context.GetParameter("Cluster-Credentials") != "" {
-		Container().Config.ClusterCredentials =
-			context.GetParameter("Cluster-Credentials")
-	}
-	if context.GetParameter("Cluster-PodCIDR") != "" {
-		Container().Config.ClusterPodCIDR =
-			context.GetParameter("Cluster-PodCIDR")
-	}
-	if context.GetParameter("Cluster-NetType") != "" {
-		Container().Config.ClusterVMNet =
-			context.GetParameter("Cluster-NetType")
-	}
-	if context.GetParameter("Cluster-MasterApiPort") != "" {
-		port, err := strconv.Atoi(context.GetParameter("Cluster-MasterApiPort"))
-		if err == nil {
-			Container().Config.ClusterMasterApiPort = port
-		}
-	}
-	if context.GetParameter("Cluster-ServiceDomain") != "" {
-		Container().Config.ClusterServiceDomain =
-			context.GetParameter("Cluster-ServiceDomain")
-	}
-	if context.GetParameter("Node-NetBridgeCIDR") != "" {
-		Container().Config.NodeNetBridgeCIDR =
-			context.GetParameter("Node-NetBridgeCIDR")
-	}
-	if context.GetParameter("Node-NetNodeIP") != "" {
-		Container().Config.NodeNetNodeIP =
-			context.GetParameter("Node-NetNodeIP")
-	}
-	if context.GetParameter("Node-Type") != "" {
-		Container().Config.NodeType =
-			nodeTypeFromString(context.GetParameter("Node-Type"))
-	}
-	if context.GetParameter("Node-Name") != "" {
-		Container().Config.NodeName =
-			context.GetParameter("Node-Name")
-	}
-	if context.GetParameter("Node-Box") != "" {
-		Container().Config.NodeBox =
-			context.GetParameter("Node-Box")
-	}
-	if context.GetParameter("Node-BoxVersion") != "" {
-		Container().Config.NodeBoxVersion =
-			context.GetParameter("Node-BoxVersion")
-	}
-	if context.GetParameter("Node-Memory") != "" {
-		val, err := strconv.Atoi(context.GetParameter("Node-Memory"))
-		if err == nil {
-			Container().Config.NodeMemory = val
-		}
-	}
-	if context.GetParameter("Node-CPU") != "" {
-		val, err := strconv.Atoi(context.GetParameter("Node-CPU"))
-		if err == nil {
-			Container().Config.NodeCPU = val
-		}
-	}
-
-	bean.UseBridgedNetwork = Container().Config.ClusterVMNet == "Bridge"
-	bean.UseNATNetwork = Container().Config.ClusterVMNet == "NAT"
-	if bean.UndefinedNode() {
-		if bean.Values.UseExistingCluster {
-			bean.Values.NodeType = WorkerNode
-		} else {
-			bean.Values.NodeType = MasterNode
-		}
-	}
-	return bean
 }
+
+func readClusterConfig(config *ClusterConfig, context *webapp.RequestContext) {
+	if context.GetParameter("ClusterState-Id") != "" {
+		config.ClusterId =
+			context.GetParameter("ClusterState-Id")
+	}
+	if context.GetParameter("ClusterState-Credentials") != "" {
+		config.ClusterCredentials =
+			context.GetParameter("ClusterState-Credentials")
+		Log().Debug("In: ClusterState-Credentials = " + config.ClusterCredentials)
+	}
+	if context.GetParameter("ClusterState-PodCIDR") != "" {
+		config.ClusterPodCIDR =
+			context.GetParameter("ClusterState-PodCIDR")
+		Log().Debug("In: ClusterState-PodCIDR = " + config.ClusterPodCIDR)
+	}
+	if context.GetParameter("ClusterState-VMNet") != "" {
+		val := context.GetParameter("ClusterState-VMNet")
+		switch val {
+		case "NAT":
+		default:
+			config.ClusterVMNet = NAT
+		case "Bridged":
+			config.ClusterVMNet = Bridged
+		}
+		Log().Debug("In: ClusterState-VMNet = " + config.ClusterVMNet.String())
+	}
+	if context.GetParameter("ClusterState-InternalNetCIDR") != "" {
+		config.ClusterInternalNetCIDR =
+			context.GetParameter("ClusterState-InternalNetCIDR")
+		Log().Debug("In: ClusterState-InternalNetCIDR = " + config.ClusterInternalNetCIDR)
+	}
+	if context.GetParameter("ClusterState-MasterApiPort") != "" {
+		port, err := strconv.Atoi(context.GetParameter("ClusterState-MasterApiPort"))
+		if err == nil {
+			config.ClusterMasterApiPort = port
+			Log().Debug("In: ClusterState-MasterApiPort = " + strconv.Itoa(config.ClusterMasterApiPort))
+		}
+	}
+	if context.GetParameter("ClusterState-NetCIDR") != "" {
+		config.ClusterNetCIDR =
+			context.GetParameter("ClusterState-NetCIDR")
+		Log().Debug("In: ClusterState-NetCIDR = " + config.ClusterNetCIDR)
+	}
+	if context.GetParameter("ClusterState-ServiceDomain") != "" {
+		config.ClusterServiceDomain =
+			context.GetParameter("ClusterState-ServiceDomain")
+		Log().Debug("In: ClusterState-ServiceDomain = " + config.ClusterServiceDomain)
+	}
+}
+
+func readLocalNodeConfig(config *LocalNodeConfig, context *webapp.RequestContext, prefix string) {
+	if context.GetParameter(prefix+"Node-NodeIP") != "" {
+		config.NodeIP =
+			context.GetParameter(prefix + "Node-NodeIP")
+		Log().Debug("In: " + prefix + "NodeIP = " + config.NodeIP)
+	}
+	if context.GetParameter(prefix+"Node-Type") != "" {
+		config.NodeType =
+			nodeTypeFromString(context.GetParameter(prefix + "Node-Type"))
+		Log().Debug("In: " + prefix + "Node-Type = " + config.NodeType.String())
+	}
+	if context.GetParameter(prefix+"Node-Name") != "" {
+		config.NodeName =
+			context.GetParameter(prefix + "Node-Name")
+		Log().Debug("In: " + prefix + "Node-Name = " + config.NodeName)
+	}
+	if context.GetParameter(prefix+"Node-Box") != "" {
+		config.NodeBox =
+			context.GetParameter(prefix + "Node-Box")
+		Log().Debug("In: " + prefix + "Node-Box = " + config.NodeBox)
+	}
+	if context.GetParameter(prefix+"Node-BoxVersion") != "" {
+		config.NodeBoxVersion =
+			context.GetParameter(prefix + "Node-BoxVersion")
+		Log().Debug("In: " + prefix + "Node-BoxVersion = " + config.NodeBoxVersion)
+	}
+	if context.GetParameter(prefix+"Node-Memory") != "" {
+		val, err := strconv.Atoi(context.GetParameter(prefix + "Node-Memory"))
+		if err == nil {
+			config.NodeMemory = val
+			Log().Debug("In: " + prefix + "Node-Memory = " + strconv.Itoa(config.NodeMemory))
+		}
+	}
+	if context.GetParameter(prefix+"Node-CPU") != "" {
+		val, err := strconv.Atoi(context.GetParameter(prefix + "Node-CPU"))
+		if err == nil {
+			config.NodeCPU = val
+			Log().Debug("In: " + prefix + "Node-CPU = " + strconv.Itoa(config.NodeCPU))
+		}
+	}
+}
+
 func nodeTypeFromString(nodeType string) NodeType {
 	switch nodeType {
-	case "WorkerNode":
-		return WorkerNode
-	case "MasterNode":
-		return MasterNode
-	case "MonitorNode":
-		return MonitorNode
+	case "Worker":
+		return Worker
+	case "Master":
+		return Master
+	case "Controller":
+		return Controller
 	default:
-		return UndefinedNodeType
+		return UndefinedNode
 	}
 }
 
 func (this ConfigBean) WorkerNode() bool {
-	return Container().Config.NodeType == WorkerNode
+	return Container().Config.WorkerNode != nil
 }
 func (this ConfigBean) MasterNode() bool {
-	return Container().Config.NodeType == MasterNode
+	return Container().Config.MasterNode != nil
 }
-func (this ConfigBean) MonitorNode() bool {
-	return Container().Config.NodeType == MonitorNode
+func (this ConfigBean) ControllerNode() bool {
+	return Container().Config.ClusterConfig != nil
 }
 func (this ConfigBean) UndefinedNode() bool {
-	return Container().Config.NodeType == UndefinedNodeType
+	return !this.MasterNode() && !this.ControllerNode() && !this.WorkerNode()
 }
 
 // Web action starting the setup process
 
 func IndexAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	data := make(map[string]interface{})
-	data["Config"] = Container().Config
+	if Container().CurrentStatus == APPSTATE_SETUP {
+		data := make(map[string]interface{})
+		data["Config"] = Container().Config
+		return &webapp.ActionResponse{
+			NextPage: "index",
+			Model:    data,
+		}
+	}
 	return &webapp.ActionResponse{
-		NextPage: "index",
-		Model:    data,
+		NextPage: "_redirect",
+		Model:    "/",
 	}
 }
 func Step1Action(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
@@ -225,17 +311,17 @@ func Step2Action(context *webapp.RequestContext, writer http.ResponseWriter) *we
 
 func clusterOptions(clusterManager *ClusterManager) webapp.Options {
 	clusterOptions := webapp.Options{}
-	clusterIds := (*clusterManager).GetClusterIDs()
+	clusterIds := (*clusterManager).GetKnownClusterIDs()
 	// TODO remove this block
-	clusterIds = append(clusterIds, "ClusterID-1")
-	clusterIds = append(clusterIds, "ClusterID-2")
-	clusterIds = append(clusterIds, "ClusterID-3")
+	clusterIds = append(clusterIds, "ClusterId-1")
+	clusterIds = append(clusterIds, "ClusterId-2")
+	clusterIds = append(clusterIds, "ClusterId-3")
 	// TODO remove this block
 	for _, id := range clusterIds {
 		option := webapp.Option{
 			Name:     id,
 			Value:    id,
-			Selected: Container().Config.ClusterID == id,
+			Selected: Container().Config.ClusterLogin.ClusterId == id,
 		}
 		clusterOptions.Entries = append(clusterOptions.Entries, option)
 	}
@@ -293,6 +379,9 @@ func Step3Action(context *webapp.RequestContext, writer http.ResponseWriter) *we
 
 // Web action starting the node after the configuration has been completed
 func InstallConfigAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	// write config
+	config := Container().Config
+	_ = config.writeConfig()
 	nodeManager := *Container().NodeManager
 	_, err := nodeManager.ValidateConfig()
 	if err != nil {
@@ -300,9 +389,18 @@ func InstallConfigAction(context *webapp.RequestContext, writer http.ResponseWri
 	} else {
 		fmt.Println("Validation successful...")
 	}
-	action := nodeManager.Initialize(true)
-	if action.Error == nil {
-		nodeManager.StartNode()
+	clusterManager := *Container().ClusterManager
+	if config.ClusterConfig.LocallyManaged {
+		err = clusterManager.StartLocalController(config.ClusterConfig)
+	} else {
+		err = clusterManager.StartRemoteController(config.ClusterConfig)
+	}
+	if util.CheckAndLogError("Starting Cluster Manager", err) {
+		action := nodeManager.Initialize(true)
+		if util.CheckAndLogError("Starting Node Manager", action.Error) {
+			nodeManager.StartNode()
+			Container().RequiredAppStatus = APPSTATE_RUNNING
+		}
 	}
 	return &webapp.ActionResponse{
 		NextPage: "_redirect",

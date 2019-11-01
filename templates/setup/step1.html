@@ -34,11 +34,15 @@
         <input type="hidden" name="IsForm" value="true">
         <label for="masterselect">{{ index .Messages "setup-masterselect.label"}}</label>
         <div class="form-group form-check" id="masterselect">
-            <input type="radio" name="UseExistingCluster" class="form-radio-input" id="setup_new_cluster" value="false" {{ if not .Data.Config.Values.UseExistingCluster}}checked="true"{{end}}>
-            <label class="form-check-label" for="setup_new_cluster">{{ index .Messages "setup-newcluster.label"}}</label>
+            <input type="checkbox" name="IsController" class="form-radio-input" id="setup_controller" value="true" {{ if .Data.Config.Values.IsControllerNode}}checked="true"{{end}}>
+            <label class="form-check-label" for="setup_controller">{{ index .Messages "setup-controller.label"}}</label>
             <br/>
-            <input type="radio" name="UseExistingCluster" class="form-radio-input" id="setup_join_cluster" value="true" {{ if .Data.Config.Values.UseExistingCluster}}checked="true"{{end}}>
-            <label class="form-check-label" for="setup_join_cluster">{{ index .Messages "setup-joincluster.label"}}</label>
+            <input type="checkbox" name="IsMaster" class="form-radio-input" id="setup_master" value="true" {{ if .Data.Config.Values.IsMasterNode}}checked="true"{{end}}>
+            <label class="form-check-label" for="setup_master">{{ index .Messages "setup-master.label"}}</label>
+            <br/>
+            <input type="checkbox" name="IsWorker" class="form-radio-input" id="setup_worker" value="true" {{ if .Data.Config.Values.IsWorkerNode}}checked="true"{{end}}>
+            <label class="form-check-label" for="setup_worker">{{ index .Messages "setup-worker.label"}}</label>
+            <br/>
         </div>
         <button type="submit" class="btn btn-primary" formaction="index">{{ index .Messages "action.abort-setup.label"}}</button>
         <button type="submit" class="btn btn-primary" formaction="step2">{{ index .Messages "action.continue-to-step-2.label"}}</button>

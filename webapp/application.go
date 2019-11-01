@@ -34,7 +34,10 @@ type WebApplication struct {
 	Name            string
 	templateManager *util.TemplateManager
 	Pages           map[string]*Page
-	Actions         map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse
+	GetActions      map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse
+	PostActions     map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse
+	PutActions      map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse
+	DeleteActions   map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse
 	sessionStore    *sessions.CookieStore
 	Translations    *Translations
 	rootContext     string
@@ -45,7 +48,10 @@ func CreateWebApp(name string, rootContext string, defaulLanguage language.Tag) 
 		Name:            name,
 		templateManager: util.CreateTemplateManager(),
 		Pages:           make(map[string]*Page),
-		Actions:         make(map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse),
+		GetActions:      make(map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse),
+		PostActions:     make(map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse),
+		PutActions:      make(map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse),
+		DeleteActions:   make(map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse),
 		rootContext:     rootContext,
 		sessionStore:    sessions.NewCookieStore([]byte("WinKubeIsSoCool")),
 		Translations:    CreateTranslations(defaulLanguage),
@@ -68,8 +74,20 @@ func (app *WebApplication) LoadTranslations(lang language.Tag) *WebApplication {
 	return app
 }
 
-func (app *WebApplication) SetAction(name string, action func(req *RequestContext, writer http.ResponseWriter) *ActionResponse) *WebApplication {
-	app.Actions[name] = &action
+func (app *WebApplication) GetAction(name string, action func(req *RequestContext, writer http.ResponseWriter) *ActionResponse) *WebApplication {
+	app.GetActions[name] = &action
+	return app
+}
+func (app *WebApplication) PostAction(name string, action func(req *RequestContext, writer http.ResponseWriter) *ActionResponse) *WebApplication {
+	app.PostActions[name] = &action
+	return app
+}
+func (app *WebApplication) PutAction(name string, action func(req *RequestContext, writer http.ResponseWriter) *ActionResponse) *WebApplication {
+	app.PutActions[name] = &action
+	return app
+}
+func (app *WebApplication) DeleteAction(name string, action func(req *RequestContext, writer http.ResponseWriter) *ActionResponse) *WebApplication {
+	app.DeleteActions[name] = &action
 	return app
 }
 
@@ -96,7 +114,7 @@ func (app *WebApplication) HandleRequest(writer http.ResponseWriter, req *http.R
 		Language:    language,
 	}
 
-	var action *func(req *RequestContext, writer http.ResponseWriter) *ActionResponse = app.findAction(req)
+	var action = app.findAction(req)
 
 	if action != nil {
 		actionResponse := (*action)(renderModel.Context, writer)
@@ -107,12 +125,10 @@ func (app *WebApplication) HandleRequest(writer http.ResponseWriter, req *http.R
 			}
 			renderModel.Page = nextPage
 		}
-		if actionResponse.Model != nil {
-			renderModel.Data = actionResponse.Model
-		}
-		if actionResponse.complete {
+		if actionResponse == nil || actionResponse.Complete {
 			return
 		}
+		renderModel.Data = actionResponse.Model
 	}
 	// no action, try to find page...
 	if renderModel.Page == nil {
@@ -163,8 +179,9 @@ func (app *WebApplication) findAction(req *http.Request) *func(req *RequestConte
 	uri, _ := url.ParseRequestURI(req.RequestURI)
 	var action *func(req *RequestContext, writer http.ResponseWriter) *ActionResponse
 	actionName, found := uri.Query()["action"]
+	method := req.Method
 	if found {
-		action = app.Actions[actionName[0]]
+		action = app.lookupAction(method, actionName[0])
 	}
 	path := uri.Path
 	if strings.Index(path, app.rootContext) == 0 {
@@ -173,12 +190,12 @@ func (app *WebApplication) findAction(req *http.Request) *func(req *RequestConte
 	if !(strings.Index(path, "/") == 0) {
 		path = "/" + path
 	}
-	action = app.Actions[path]
+	action = app.lookupAction(method, path)
 	if action == nil {
 		// check subsplits
 		parts := strings.SplitN(path, "/", 1)
 		for len(parts) > 1 {
-			action = app.Actions[parts[1]]
+			action = app.lookupAction(method, parts[1])
 			if action != nil {
 				return action
 			}
@@ -186,6 +203,21 @@ func (app *WebApplication) findAction(req *http.Request) *func(req *RequestConte
 		}
 	}
 	return action
+}
+
+func (app *WebApplication) lookupAction(method string, actionName string) *func(req *RequestContext, writer http.ResponseWriter) *ActionResponse {
+	switch strings.ToUpper(method) {
+	case "PUT":
+		return app.PutActions[actionName]
+	case "POST":
+		return app.PostActions[actionName]
+	case "DELETE":
+		return app.DeleteActions[actionName]
+	case "GET":
+		fallthrough
+	default:
+		return app.GetActions[actionName]
+	}
 }
 
 func (app *WebApplication) findPage(req *http.Request) *Page {

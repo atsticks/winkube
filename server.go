@@ -19,60 +19,71 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/winkube/service"
-	"github.com/winkube/service/netutil"
-	util2 "github.com/winkube/util"
 	"net/http"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 )
 
 func startup() {
-	http.Handle("/", service.Container().Router)
-	http.ListenAndServe("0.0.0.0:8080", nil)
 	if !service.Container().Config.Ready() {
-		explore("/setup")
+		service.Container().RequiredAppStatus = service.APPSTATE_SETUP
 	}
 	go manageState()
+	http.Handle("/", service.Container().Router)
+	http.ListenAndServe("0.0.0.0:8080", nil)
 }
 
 func manageState() {
 	for {
 		if service.Container().RequiredAppStatus != service.Container().CurrentStatus {
+			var actionManager service.ActionManager = *service.GetActionManager()
+			var action *service.Action
 			switch service.Container().RequiredAppStatus {
 			case service.APPSTATE_SETUP:
+				action = actionManager.StartAction("Trying to switch to SETUP Mode")
 				if service.Container().CurrentStatus == service.APPSTATE_RUNNING || service.Container().CurrentStatus == service.APPSTATE_ERROR {
 					log.Info("Stopping service registry...")
+					actionManager.LogAction(action.Id, "Stopping service registry...")
 					(*service.Container().ServiceRegistry).Stop()
+					actionManager.LogAction(action.Id, "Service registry stopped.")
 				}
 				log.Info("Entering setup mode...")
 				service.Container().CurrentStatus = service.APPSTATE_SETUP
+				actionManager.CompleteWithMessage(action.Id, "New Mode applied: SETUP")
 			case service.APPSTATE_RUNNING:
+				action = actionManager.StartAction("Trying to switch to RUNNING Mode")
 				if service.Container().Config.Ready() {
 					service.Container().CurrentStatus = service.APPSTATE_STARTING
-					log.Info("Starting WinKube...")
+					actionManager.LogAction(action.Id, "Starting services...")
+					log.Info("Starting services...")
 					if service.Container().Config.NetMulticastEnabled {
+						actionManager.LogAction(action.Id, "Starting UPnP multicast service registry...")
 						log.Info("Starting UPnP multicast service registry...")
 						(*service.Container().ServiceRegistry).StartUPnP(service.Container().ServiceProvider, service.Container().Config.NetUPnPPort)
 					} else {
 						log.Info("Starting catalogue service registry...")
-						(*service.Container().ServiceRegistry).StartServiceCatalogue(service.Container().ServiceProvider, strings.Split(service.Container().Config.NetLookupMasters, ","))
+						actionManager.LogAction(action.Id, "Starting catalogue service registr...")
+						(*service.Container().ServiceRegistry).StartServiceCatalogue(service.Container().ServiceProvider, strings.Split(service.Container().Config.NetLookupMaster, ","))
 					}
-					// TODO Start node and register service in catalogue
-					service.Container().CurrentStatus = service.APPSTATE_RUNNING
 					log.Info("WinKube running.")
+					service.Container().CurrentStatus = service.APPSTATE_RUNNING
+					actionManager.CompleteWithMessage(action.Id, "New Mode applied: RUNNING")
+				} else {
+					service.Container().RequiredAppStatus = service.APPSTATE_SETUP
+					actionManager.CompleteWithMessage(action.Id, "Cannot switch to a RUNNING state: config is not ready.")
 				}
 			case service.APPSTATE_IDLE:
 				if service.Container().CurrentStatus == service.APPSTATE_RUNNING {
+					action = actionManager.StartAction("Switch to IDLE Mode")
 					// TODO mark worker node as non deployable
 					// wait for Kubernetes to remove workload
+					log.Info("WinKube now idle.")
 					service.Container().CurrentStatus = service.APPSTATE_IDLE
-					log.Info("WinKube running.")
+					actionManager.CompleteWithMessage(action.Id, "New Mode applied: IDLE")
 				}
 			}
 		}
@@ -90,40 +101,14 @@ func explore(path string) {
 	}
 }
 
-func createDummyService(nodeConfig service.NodeConfig) netutil.Service {
-	return netutil.Service{
-		AdType:   service.WINKUBE_ADTYPE,
-		Id:       nodeConfig.Id(),
-		Service:  nodeConfig.NodeType.String(),
-		Version:  "1",
-		Location: nodeConfig.Host + ":" + strconv.Itoa(nodeConfig.Port),
-		Server:   util2.RuntimeInfo() + " UPnP/1.0 WinKube/1.0",
-		MaxAge:   60,
-	}
-}
-
-// Handles the / (home URL)
-func HomeHandler(w http.ResponseWriter, r *http.Request) {
-	bytes, _ := json.Marshal(service.Container().Config.NodeConfig)
-	w.Write(bytes)
-}
-
-// Handles the /cluster URL
-func ClusterHandler(w http.ResponseWriter, r *http.Request) {
-	bytes, _ := json.Marshal(service.Container().Config)
-	w.Write(bytes)
-}
-
 // Main that starts the server and all services
 func main() {
 	fmt.Println("Starting management container...")
 	service.Start()
 	log.Info(service.Container().Stats())
 	router := service.Container().Router
-	if !service.Container().Config.Ready() {
-		setupWebapp := service.SetupWebApplication(router)
-		router.PathPrefix("/setup").HandlerFunc(setupWebapp.HandleRequest)
-	}
+	setupWebapp := service.SetupWebApplication(router)
+	router.PathPrefix("/setup").HandlerFunc(setupWebapp.HandleRequest)
 	monitorWebapp := service.MonitorWebApplication(router)
 	router.PathPrefix("/").HandlerFunc(monitorWebapp.HandleRequest)
 	startup()
