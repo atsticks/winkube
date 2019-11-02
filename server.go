@@ -67,7 +67,7 @@ func manageState() {
 					} else {
 						log.Info("Starting catalogue service registry...")
 						actionManager.LogAction(action.Id, "Starting catalogue service registr...")
-						(*service.Container().ServiceRegistry).StartServiceCatalogue(service.Container().ServiceProvider, strings.Split(service.Container().Config.NetLookupMaster, ","))
+						(*service.Container().ServiceRegistry).StartServiceCatalogue(service.Container().ServiceProvider, strings.Split(service.Container().Config.MasterController, ","))
 					}
 					log.Info("WinKube running.")
 					service.Container().CurrentStatus = service.APPSTATE_RUNNING

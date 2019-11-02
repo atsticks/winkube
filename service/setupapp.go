@@ -67,13 +67,13 @@ func readConfig(context *webapp.RequestContext) ConfigBean {
 		Values: Container().Config,
 	}
 	config := Container().Config
-	if context.GetParameter("ControllerConnection-ClusterState-Id") != "" {
+	if context.GetParameter("ControllerConnection-Cluster-Id") != "" {
 		config.ClusterLogin.ClusterId =
-			context.GetParameter("ControllerConnection-ClusterState-Id")
+			context.GetParameter("ControllerConnection-Cluster-Id")
 	}
-	if context.GetParameter("ControllerConnection-ClusterState-Credentials") != "" {
+	if context.GetParameter("ControllerConnection-Cluster-Credentials") != "" {
 		config.ClusterLogin.ClusterCredentials =
-			context.GetParameter("ControllerConnection-ClusterState-Credentials")
+			context.GetParameter("ControllerConnection-Cluster-Credentials")
 	}
 	// controller
 	if context.GetParameter("IsController") != "" {
@@ -93,8 +93,9 @@ func readConfig(context *webapp.RequestContext) ConfigBean {
 }
 
 func readNodeConfig(config *SystemConfiguration, context *webapp.RequestContext) {
-	if context.GetParameter("IsMaster") != "" && config.MasterNode == nil {
+	if context.GetParameter("IsPrimaryMaster") != "" && config.MasterNode == nil {
 		config.MasterNode = &LocalNodeConfig{
+			IsJoiningMode: false,
 			NodeConfig: NodeConfig{
 				NodeName:   "WinKube-" + config.ClusterLogin.ClusterId + "-Master",
 				NodeType:   Master,
@@ -104,6 +105,20 @@ func readNodeConfig(config *SystemConfiguration, context *webapp.RequestContext)
 			NodeBox:        "ubuntu/xenial64",
 			NodeBoxVersion: "20180831.0.0",
 		}
+	}
+	if context.GetParameter("IsJoiningMaster") != "" && config.MasterNode == nil {
+		config.MasterNode = &LocalNodeConfig{
+			IsJoiningMode: true,
+			NodeConfig: NodeConfig{
+				NodeName:   "WinKube-" + config.ClusterLogin.ClusterId + "-Master",
+				NodeType:   Master,
+				NodeMemory: 2048,
+				NodeCPU:    2,
+			},
+			NodeBox:        "ubuntu/xenial64",
+			NodeBoxVersion: "20180831.0.0",
+		}
+		config.MasterNode.IsJoiningMode = true
 	}
 	readLocalNodeConfig(config.MasterNode, context, "master-")
 
@@ -118,6 +133,7 @@ func readNodeConfig(config *SystemConfiguration, context *webapp.RequestContext)
 			NodeBox:        "ubuntu/xenial64",
 			NodeBoxVersion: "20180831.0.0",
 		}
+		config.WorkerNode.IsJoiningMode = true
 	}
 	readLocalNodeConfig(config.WorkerNode, context, "worker-")
 }
@@ -136,10 +152,10 @@ func readNetConfig(config *SystemConfiguration, context *webapp.RequestContext) 
 		config.NetUPnPPort = upnpPort
 		Log().Debug("In: Net-UPnpPort = " + strconv.Itoa(config.NetUPnPPort))
 	}
-	if context.GetParameter("Net-LookupMaster") != "" {
-		config.NetLookupMaster =
-			context.GetParameter("Net-LookupMaster")
-		Log().Debug("In: Net-LookupMaster = " + config.NetLookupMaster)
+	if context.GetParameter("Net-MasterController") != "" {
+		config.MasterController =
+			context.GetParameter("Net-MasterController")
+		Log().Debug("In: Net-MasterController = " + config.MasterController)
 	}
 	if context.GetParameter("Net-Interface") != "" {
 		config.NetHostInterface =
@@ -153,22 +169,22 @@ func readNetConfig(config *SystemConfiguration, context *webapp.RequestContext) 
 }
 
 func readClusterConfig(config *ClusterConfig, context *webapp.RequestContext) {
-	if context.GetParameter("ClusterState-Id") != "" {
+	if context.GetParameter("Cluster-Id") != "" {
 		config.ClusterId =
-			context.GetParameter("ClusterState-Id")
+			context.GetParameter("Cluster-Id")
 	}
-	if context.GetParameter("ClusterState-Credentials") != "" {
+	if context.GetParameter("Cluster-Credentials") != "" {
 		config.ClusterCredentials =
-			context.GetParameter("ClusterState-Credentials")
-		Log().Debug("In: ClusterState-Credentials = " + config.ClusterCredentials)
+			context.GetParameter("Cluster-Credentials")
+		Log().Debug("In: Cluster-Credentials = " + config.ClusterCredentials)
 	}
-	if context.GetParameter("ClusterState-PodCIDR") != "" {
+	if context.GetParameter("Cluster-PodCIDR") != "" {
 		config.ClusterPodCIDR =
-			context.GetParameter("ClusterState-PodCIDR")
-		Log().Debug("In: ClusterState-PodCIDR = " + config.ClusterPodCIDR)
+			context.GetParameter("Cluster-PodCIDR")
+		Log().Debug("In: Cluster-PodCIDR = " + config.ClusterPodCIDR)
 	}
-	if context.GetParameter("ClusterState-VMNet") != "" {
-		val := context.GetParameter("ClusterState-VMNet")
+	if context.GetParameter("Cluster-VMNet") != "" {
+		val := context.GetParameter("Cluster-VMNet")
 		switch val {
 		case "NAT":
 		default:
@@ -176,29 +192,24 @@ func readClusterConfig(config *ClusterConfig, context *webapp.RequestContext) {
 		case "Bridged":
 			config.ClusterVMNet = Bridged
 		}
-		Log().Debug("In: ClusterState-VMNet = " + config.ClusterVMNet.String())
+		Log().Debug("In: Cluster-VMNet = " + config.ClusterVMNet.String())
 	}
-	if context.GetParameter("ClusterState-InternalNetCIDR") != "" {
-		config.ClusterInternalNetCIDR =
-			context.GetParameter("ClusterState-InternalNetCIDR")
-		Log().Debug("In: ClusterState-InternalNetCIDR = " + config.ClusterInternalNetCIDR)
-	}
-	if context.GetParameter("ClusterState-MasterApiPort") != "" {
-		port, err := strconv.Atoi(context.GetParameter("ClusterState-MasterApiPort"))
+	if context.GetParameter("Cluster-MasterApiPort") != "" {
+		port, err := strconv.Atoi(context.GetParameter("Cluster-MasterApiPort"))
 		if err == nil {
 			config.ClusterMasterApiPort = port
-			Log().Debug("In: ClusterState-MasterApiPort = " + strconv.Itoa(config.ClusterMasterApiPort))
+			Log().Debug("In: Cluster-MasterApiPort = " + strconv.Itoa(config.ClusterMasterApiPort))
 		}
 	}
-	if context.GetParameter("ClusterState-NetCIDR") != "" {
+	if context.GetParameter("Cluster-NetCIDR") != "" {
 		config.ClusterNetCIDR =
-			context.GetParameter("ClusterState-NetCIDR")
-		Log().Debug("In: ClusterState-NetCIDR = " + config.ClusterNetCIDR)
+			context.GetParameter("Cluster-NetCIDR")
+		Log().Debug("In: Cluster-NetCIDR = " + config.ClusterNetCIDR)
 	}
-	if context.GetParameter("ClusterState-ServiceDomain") != "" {
+	if context.GetParameter("Cluster-ServiceDomain") != "" {
 		config.ClusterServiceDomain =
-			context.GetParameter("ClusterState-ServiceDomain")
-		Log().Debug("In: ClusterState-ServiceDomain = " + config.ClusterServiceDomain)
+			context.GetParameter("Cluster-ServiceDomain")
+		Log().Debug("In: Cluster-ServiceDomain = " + config.ClusterServiceDomain)
 	}
 }
 
@@ -398,7 +409,7 @@ func InstallConfigAction(context *webapp.RequestContext, writer http.ResponseWri
 	}
 	clusterManager := *Container().ClusterManager
 	if config.ClusterConfig.LocallyManaged {
-		err = clusterManager.StartLocalController(config.ClusterConfig)
+		err = clusterManager.StartLocalController(config.ClusterConfig, config.Id)
 	} else {
 		err = clusterManager.StartRemoteController(config.ClusterConfig)
 	}

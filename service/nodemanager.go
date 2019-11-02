@@ -33,19 +33,20 @@ type VagrantNode struct {
 	Memory     int      `validate:"required,gte=1024"`
 	Cpu        int      `validate:"required,gte=1"`
 	NetType    string   `validate:"required"`
+	Joinining  bool
 }
 type VagrantConfig struct {
-	NetCIDR           string
-	PodNetCIDR        string        `validate:"required"`
-	NodeConfigs       []VagrantNode `validate:"required"`
-	ApiServerBindPort int           `validate:"required,gte=1"`
-	ServiceDNSDomain  string        `validate:"required"`
-	HostInterface     string        `validate:"required"`
-	HostIp            string        `validate:"required"`
-	NetType           VMNetType     `validate:"required"`
-	LocalMasterIp     string        `validate:"required"`
-	PublicMasterIp    string        `validate:"required"`
-	MasterToken       string        `validate:"required"`
+	NetCIDR           string `validate:"required"`
+	PodNetCIDR        string `validate:"required"`
+	NodeConfigs       []VagrantNode
+	ApiServerBindPort int       `validate:"required,gte=1"`
+	ServiceDNSDomain  string    `validate:"required"`
+	HostInterface     string    `validate:"required"`
+	HostIp            string    `validate:"required"`
+	NetType           VMNetType `validate:"required"`
+	LocalMaster       string
+	PublicMaster      string
+	MasterToken       string
 }
 
 func createVagrantConfig(appConfig *SystemConfiguration) VagrantConfig {
@@ -58,16 +59,14 @@ func createVagrantConfig(appConfig *SystemConfiguration) VagrantConfig {
 		HostInterface:     appConfig.NetHostInterface,
 		HostIp:            appConfig.GetHostIp(),
 		NetType:           clusterConfig.ClusterVMNet,
-		PublicMasterIp:    clusterConfig.ClusterControlPane,
 		NodeConfigs:       createNodeConfigs(clusterConfig, appConfig.MasterNode, appConfig.WorkerNode),
 	}
 	if appConfig.MasterNode != nil {
-		config.LocalMasterIp = appConfig.MasterNode.NodeIP
-		if config.PublicMasterIp == "" {
-			config.PublicMasterIp = config.LocalMasterIp
+		config.LocalMaster = appConfig.MasterNode.NodeIP
+		if config.PublicMaster == "" {
+			config.PublicMaster = config.LocalMaster
 		}
 	}
-
 	return config
 }
 
@@ -83,6 +82,7 @@ func createNodeConfigs(clusterConfig *ClusterConfig, masterNode *LocalNodeConfig
 			Cpu:        masterNode.NodeCPU,
 			NodeType:   masterNode.NodeType,
 			NetType:    clusterConfig.ClusterVMNet.String(),
+			Joinining:  masterNode.IsJoiningMode,
 		}
 		result = append(result, node)
 	}
@@ -96,6 +96,7 @@ func createNodeConfigs(clusterConfig *ClusterConfig, masterNode *LocalNodeConfig
 			Cpu:        workerNode.NodeCPU,
 			NodeType:   workerNode.NodeType,
 			NetType:    clusterConfig.ClusterVMNet.String(),
+			Joinining:  true,
 		}
 		result = append(result, node)
 	}
@@ -110,10 +111,7 @@ func getNodeIp(ip string, master bool) string {
 	if clusterManager == nil || (*clusterManager.GetController()) == nil {
 		return ""
 	}
-	if clusterManager.GetClusterConfig().ClusterVMNet == Bridged {
-		return (*clusterManager.GetController()).ReserveNodeIP(master)
-	}
-	return (*clusterManager.GetController()).ReserveInternalIP(master)
+	return (*clusterManager.GetController()).ReserveNodeIP(master)
 }
 
 type NodeManager interface {
@@ -215,6 +213,10 @@ func (this nodeManager) Initialize(override bool) *Action {
 			return action
 		}
 	}
+	if !Container().Config.IsMasterNode() && !Container().Config.IsWorkerNode() {
+		// Only Controller will be started, no nodes!
+		return action
+	}
 	config, err := this.createVagrantConfig(Container().Config)
 	if err != nil {
 		actionManager.LogAction(action.Id, "Init Node: Validation failed: "+printValidationErrors(err))
@@ -242,6 +244,12 @@ func (this nodeManager) Initialize(override bool) *Action {
 func (this nodeManager) StartNode() *Action {
 	actionManager := (*GetActionManager())
 	action := actionManager.StartAction("Start Node")
+	if !Container().Config.IsWorkerNode() && !Container().Config.IsWorkerNode() {
+		// nothing to start
+		actionManager.CompleteWithMessage(action.Id, "Completed. No nodes to start.")
+		return action
+	}
+
 	go func() {
 		if util.FileExists("Vagrantfile") {
 			_, cmdReader, err := util.RunCommand("Start Node...", "vagrant", "up")

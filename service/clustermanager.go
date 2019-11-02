@@ -62,11 +62,11 @@ type ClusterState struct {
 	Workers       []Node          `json:"workers"`
 }
 
-func CreateLocalInstance() *Instance {
+func CreateLocalInstance(nodeId string) *Instance {
 	return &Instance{
 		Name: hostname(),
 		Host: netutil.GetDefaultIP().String(),
-		id:   Container().Config.Id,
+		id:   nodeId,
 	}
 }
 
@@ -102,15 +102,13 @@ type ClusterController interface {
 	GetMasters() []Node
 	GetWorkers() []Node
 	ReserveNodeIP(master bool) string
-	ReserveInternalIP(master bool) string
 	ReleaseNodeIP(string)
-	ReleaseInternalIP(string)
 	DrainNode(node Node)
 	CordonNode(node Node)
 }
 
 type ClusterManager interface {
-	StartLocalController(clusterConfig *ClusterConfig) error
+	StartLocalController(clusterConfig *ClusterConfig, nodeId string) error
 	StartRemoteController(clusterConfig *ClusterConfig) error
 	Stop() error
 	GetClusterId() string
@@ -130,9 +128,9 @@ func CreateClusterManager(serviceRegistry *netutil.ServiceRegistry) *ClusterMana
 	return &CM
 }
 
-func createLocalControllerNode(clusterId string) *ControllerNode {
+func createLocalControllerNode(clusterId string, nodeId string) *ControllerNode {
 	cn := ControllerNode{
-		Instance: *CreateLocalInstance(),
+		Instance: *CreateLocalInstance(nodeId),
 		ServiceEndpoint: ServiceEndpoint{
 			Service:  "ClusterControl",
 			Location: "http://" + hostname() + ":9999/cluster",
@@ -355,7 +353,6 @@ type clusterController struct {
 	config         *ClusterConfig  `validate:"required"`
 	masters        []Node
 	workers        []Node
-	clusterNATCIDR *netutil.CIDR
 	clusterNetCIDR *netutil.CIDR
 	server         *http.Server
 }
@@ -407,17 +404,10 @@ func (c clusterController) GetWorkers() []Node {
 }
 
 func (c clusterController) ReserveNodeIP(master bool) string {
-	if c.clusterNATCIDR == nil {
+	if c.clusterNetCIDR == nil {
 		return ""
 	}
 	return (*c.clusterNetCIDR).GetFreeIp()
-}
-
-func (c clusterController) ReserveInternalIP(master bool) string {
-	if c.clusterNATCIDR == nil {
-		return ""
-	}
-	return (*c.clusterNATCIDR).GetFreeIp()
 }
 
 func (c clusterController) ReleaseNodeIP(ip string) {
@@ -425,13 +415,6 @@ func (c clusterController) ReleaseNodeIP(ip string) {
 		return
 	}
 	(*c.clusterNetCIDR).MarkIpUnused(ip)
-}
-
-func (c clusterController) ReleaseInternalIP(ip string) {
-	if c.clusterNATCIDR == nil {
-		return
-	}
-	(*c.clusterNATCIDR).MarkIpUnused(ip)
 }
 
 func (c clusterController) DrainNode(node Node) {
@@ -448,13 +431,12 @@ func (c clusterController) masterExec(command string) string {
 	return "Not implemented: " + command
 }
 
-func (this *clusterManager) StartLocalController(config *ClusterConfig) error {
+func (this *clusterManager) StartLocalController(config *ClusterConfig, nodeId string) error {
 	this.clusterController = clusterController{
-		controller:     createLocalControllerNode(config.ClusterId),
+		controller:     createLocalControllerNode(config.ClusterId, nodeId),
 		config:         config,
 		masters:        []Node{},
 		workers:        []Node{},
-		clusterNATCIDR: netutil.CreateCIDR(config.ClusterInternalNetCIDR),
 		clusterNetCIDR: netutil.CreateCIDR(config.ClusterNetCIDR),
 	}
 	err := Container().Validator.Struct(this)
@@ -638,10 +620,8 @@ func hostname() string {
 func createClusterManagerWebApp(controller *clusterController) *webapp.WebApplication {
 	webapp := webapp.CreateWebApp("cluster", "/cluster", language.English)
 	webapp.GetAction("/config", controller.ActionServeClusterConfig)
-	webapp.GetAction("/nodeip", controller.ActionReserveNodeIP)            // GET
-	webapp.DeleteAction("/nodeip", controller.ActionReleaseNodeIP)         // DELETE
-	webapp.GetAction("/internalip", controller.ActionReserveInternalIP)    // GET
-	webapp.DeleteAction("/internalip", controller.ActionReleaseInternalIP) // DELETE
+	webapp.GetAction("/nodeip", controller.ActionReserveNodeIP)    // GET
+	webapp.DeleteAction("/nodeip", controller.ActionReleaseNodeIP) // DELETE
 	webapp.PostAction("/node", controller.ActionNodeStarted)
 	webapp.DeleteAction("/node", controller.ActionNodeStopped)
 	webapp.DeleteAction("/masters", controller.ActionGetMasters)
@@ -660,28 +640,6 @@ func (this clusterController) ActionServeClusterConfig(context *webapp.RequestCo
 	return nil
 }
 
-func (this clusterController) ActionReserveInternalIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	master := util.ParseBool(context.GetQueryParameter("master"))
-	ip := this.ReserveInternalIP(master)
-	if ip == "" {
-		writer.WriteHeader(http.StatusNotFound)
-		return nil
-	}
-	writer.Write([]byte(ip))
-	writer.WriteHeader(http.StatusOK)
-	return nil
-}
-func (this clusterController) ActionReleaseInternalIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	address := context.GetQueryParameter("address")
-	if address == "" {
-		writer.Write([]byte("Parameter 'address' missing."))
-		writer.WriteHeader(http.StatusBadRequest)
-		return nil
-	}
-	this.ReleaseInternalIP(address)
-	writer.WriteHeader(http.StatusOK)
-	return nil
-}
 func (this clusterController) ActionReserveNodeIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	master := util.ParseBool(context.GetQueryParameter("master"))
 	ip := this.ReserveNodeIP(master)

@@ -77,7 +77,7 @@ type LocalNetConfig struct {
 type NetConfig struct {
 	NetMulticastEnabled bool
 	NetUPnPPort         int `validate:"required"`
-	NetLookupMaster     string
+	MasterController    string
 }
 
 type ControllerConnection struct {
@@ -89,15 +89,14 @@ type ControllerConnection struct {
 type ClusterConfig struct {
 	LocallyManaged bool
 	ControllerConnection
-	ClusterPodCIDR         string    `validate:"required"`
-	ClusterServiceDomain   string    `validate:"required"`
-	ClusterVMNet           VMNetType `validate:"required"`
-	ClusterControlPane     string
-	ClusterMasters         []string
-	ClusterMasterApiPort   int
-	ClusterNetCIDR         string
-	ClusterInternalNetCIDR string
-	ClusterToken           string
+	ClusterPodCIDR       string    `validate:"required"`
+	ClusterServiceDomain string    `validate:"required"`
+	ClusterVMNet         VMNetType `validate:"required"`
+	ClusterControlPlane  string
+	ClusterMasters       string
+	ClusterMasterApiPort int
+	ClusterNetCIDR       string `validate:"required"`
+	ClusterToken         string
 	NetConfig
 }
 
@@ -115,12 +114,13 @@ type NodeConfig struct {
 
 type LocalNodeConfig struct {
 	NodeConfig
+	IsJoiningMode  bool
 	NodeBox        string `validate:"required"` // ubuntu/xenial64, centos/7
 	NodeBoxVersion string `validate:"required"` // 20180831.0.0
 }
 
 func (this *NetConfig) init(config *SystemConfiguration) *NetConfig {
-	this.NetLookupMaster = config.NetLookupMaster
+	this.MasterController = config.MasterController
 	this.NetUPnPPort = config.NetUPnPPort
 	this.NetMulticastEnabled = config.NetMulticastEnabled
 	return this
@@ -135,7 +135,8 @@ func (this *ClusterConfig) init(config *SystemConfiguration) *ClusterConfig {
 		this.ClusterPodCIDR = config.ClusterConfig.ClusterPodCIDR
 		this.ClusterVMNet = config.ClusterConfig.ClusterVMNet
 		this.ClusterCredentials = config.ClusterConfig.ClusterCredentials
-		this.ClusterControlPane = config.ClusterConfig.Controller.Host
+		this.ClusterControlPlane = config.ClusterConfig.Controller.Host
+		this.ClusterMasters = config.ClusterConfig.ClusterMasters
 	}
 	return this
 }
@@ -156,6 +157,12 @@ func (this SystemConfiguration) IsWorkerNode() bool {
 func (this SystemConfiguration) IsMasterNode() bool {
 	return this.MasterNode != nil
 }
+func (this SystemConfiguration) IsPrimaryMaster() bool {
+	return this.MasterNode != nil && !this.MasterNode.IsJoiningMode
+}
+func (this SystemConfiguration) IsJoiningMaster() bool {
+	return this.MasterNode != nil && this.MasterNode.IsJoiningMode
+}
 func (this SystemConfiguration) IsControllerNode() bool {
 	return this.ClusterConfig != nil && this.ClusterConfig.LocallyManaged
 }
@@ -173,11 +180,13 @@ func (conf SystemConfiguration) Ready() bool {
 
 func InitAppConfig() *SystemConfiguration {
 	fmt.Println("Initializing config...")
+	nodeId := uuid.New().String()
 	var appConfig SystemConfiguration = SystemConfiguration{
-		Id: uuid.New().String(),
+		Id: nodeId,
 		ClusterLogin: &ControllerConnection{
 			ClusterId:          "MyCluster",
 			ClusterCredentials: "MyCluster",
+			Controller:         createLocalControllerNode("MyCluster", nodeId),
 		},
 		ClusterConfig: &ClusterConfig{
 			ControllerConnection: ControllerConnection{
@@ -185,7 +194,7 @@ func InitAppConfig() *SystemConfiguration {
 				ClusterCredentials: "MyCluster",
 			},
 			ClusterPodCIDR:       "172.16.0.0/16",
-			ClusterControlPane:   hostname(),
+			ClusterControlPlane:  hostname(),
 			ClusterMasterApiPort: 6443,
 			ClusterServiceDomain: "cluster.local",
 			ClusterVMNet:         NAT,
@@ -203,16 +212,6 @@ func InitAppConfig() *SystemConfiguration {
 			NetHostInterface: netutil.GetDefaultInterface().Name,
 			NetHostIP:        netutil.GetDefaultIP().String(),
 		},
-		//Master: &LocalNodeConfig{
-		//	NodeConfig: NodeConfig{
-		//		NodeName:   "node",
-		//		NodeType:   Master,
-		//		NodeMemory: 2048,
-		//		NodeCPU:    2,
-		//	},
-		//	NodeBox:        "ubuntu/xenial64",
-		//	NodeBoxVersion: "20180831.0.0",
-		//},
 	}
 	appConfig.readConfig()
 	return &appConfig

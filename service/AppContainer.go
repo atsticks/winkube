@@ -81,7 +81,40 @@ func Start() {
 func createValidator() *validator.Validate {
 	val := validator.New()
 	val.RegisterStructValidation(vagrantNodeValidation, VagrantNode{})
+	val.RegisterStructValidation(vagrantConfig, VagrantConfig{})
+	val.RegisterStructValidation(configValidation, SystemConfiguration{})
+	val.RegisterStructValidation(clusterConfigValidation, ClusterConfig{})
 	return val
+}
+
+func vagrantConfig(sl validator.StructLevel) {
+
+}
+
+func configValidation(sl validator.StructLevel) {
+	config := sl.Current().Interface().(SystemConfiguration)
+	if config.ClusterConfig.ClusterId != config.ClusterLogin.ClusterId {
+		sl.ReportError(config, "ClusterConfig.clusterId", "ClusterLogin.ClusterId", "Config.ClusterId does not match Config.ClusterLogin.ClusterId", "")
+	}
+	if !config.ClusterConfig.NetMulticastEnabled && config.MasterController == "" {
+		sl.ReportError(config, "MasterController", "ClusterConfig.NetMulticastEnabled", "Multicast is disabled, but no MasterController is configured", "")
+	}
+	if config.WorkerNode != nil && !config.WorkerNode.IsJoiningMode {
+		sl.ReportError(config, "WorkerNode", "WorkerNode.IsJoiningMode", "A Worker must be joining always", "")
+	}
+	if config.ClusterConfig.ClusterToken == "" && config.MasterNode != nil && config.MasterNode.IsJoiningMode {
+		sl.ReportError(config, "ClusterConfig.ClusterToken", "MasterNode.IsJoiningMode", "To join a cluster a ClusterToken is required.", "")
+	}
+	if config.ClusterConfig.ClusterToken == "" && config.WorkerNode != nil {
+		sl.ReportError(config, "ClusterConfig.ClusterToken", "WorkerNode", "To join a cluster a ClusterToken is required.", "")
+	}
+}
+
+func clusterConfigValidation(sl validator.StructLevel) {
+	config := sl.Current().Interface().(ClusterConfig)
+	if !config.LocallyManaged && config.Controller == nil {
+		sl.ReportError(config, "LocallyManaged", "ClusterConfig.Controller", "The cluster is not locally managed, but there is no controller configured.", "")
+	}
 }
 
 func vagrantNodeValidation(sl validator.StructLevel) {
