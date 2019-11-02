@@ -58,6 +58,26 @@ func (this Action) Status() string {
 	return "COMPLETED"
 }
 
+func (this Action) Complete() {
+	(*GetActionManager()).Complete(this.Id)
+}
+
+func (this Action) CompleteWithMessage(message string) {
+	(*GetActionManager()).CompleteWithMessage(this.Id, message)
+}
+
+func (this Action) CompleteWitError(err error) {
+	(*GetActionManager()).CompleteWithError(this.Id, err)
+}
+
+func (this Action) LogAction(message string) {
+	(*GetActionManager()).LogAction(this.Id, message)
+}
+
+func (this Action) LogActionLn(message string) {
+	this.LogAction(message + "\n")
+}
+
 type ActionManager interface {
 	LookupAction(id string) *Action
 	RunningActions() []*Action

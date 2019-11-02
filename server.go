@@ -47,34 +47,34 @@ func manageState() {
 				action = actionManager.StartAction("Trying to switch to SETUP Mode")
 				if service.Container().CurrentStatus == service.APPSTATE_RUNNING || service.Container().CurrentStatus == service.APPSTATE_ERROR {
 					log.Info("Stopping service registry...")
-					actionManager.LogAction(action.Id, "Stopping service registry...")
+					action.LogActionLn("Stopping service registry...")
 					(*service.Container().ServiceRegistry).Stop()
-					actionManager.LogAction(action.Id, "Service registry stopped.")
+					action.LogActionLn("Service registry stopped.")
 				}
 				log.Info("Entering setup mode...")
 				service.Container().CurrentStatus = service.APPSTATE_SETUP
-				actionManager.CompleteWithMessage(action.Id, "New Mode applied: SETUP")
+				action.CompleteWithMessage("New Mode applied: SETUP")
 			case service.APPSTATE_RUNNING:
 				action = actionManager.StartAction("Trying to switch to RUNNING Mode")
 				if service.Container().Config.Ready() {
 					service.Container().CurrentStatus = service.APPSTATE_STARTING
-					actionManager.LogAction(action.Id, "Starting services...")
+					action.LogActionLn("Starting services...")
 					log.Info("Starting services...")
 					if service.Container().Config.NetMulticastEnabled {
-						actionManager.LogAction(action.Id, "Starting UPnP multicast service registry...")
+						action.LogActionLn("Starting UPnP multicast service registry...")
 						log.Info("Starting UPnP multicast service registry...")
 						(*service.Container().ServiceRegistry).StartUPnP(service.Container().ServiceProvider, service.Container().Config.NetUPnPPort)
 					} else {
 						log.Info("Starting catalogue service registry...")
-						actionManager.LogAction(action.Id, "Starting catalogue service registr...")
+						action.LogActionLn("Starting catalogue service registr...")
 						(*service.Container().ServiceRegistry).StartServiceCatalogue(service.Container().ServiceProvider, strings.Split(service.Container().Config.MasterController, ","))
 					}
 					log.Info("WinKube running.")
 					service.Container().CurrentStatus = service.APPSTATE_RUNNING
-					actionManager.CompleteWithMessage(action.Id, "New Mode applied: RUNNING")
+					action.CompleteWithMessage("New Mode applied: RUNNING")
 				} else {
 					service.Container().RequiredAppStatus = service.APPSTATE_SETUP
-					actionManager.CompleteWithMessage(action.Id, "Cannot switch to a RUNNING state: config is not ready.")
+					action.CompleteWithMessage("Cannot switch to a RUNNING state: config is not ready.")
 				}
 			case service.APPSTATE_IDLE:
 				if service.Container().CurrentStatus == service.APPSTATE_RUNNING {
@@ -83,7 +83,7 @@ func manageState() {
 					// wait for Kubernetes to remove workload
 					log.Info("WinKube now idle.")
 					service.Container().CurrentStatus = service.APPSTATE_IDLE
-					actionManager.CompleteWithMessage(action.Id, "New Mode applied: IDLE")
+					action.CompleteWithMessage("New Mode applied: IDLE")
 				}
 			}
 		}

@@ -215,6 +215,7 @@ func (this nodeManager) Initialize(override bool) *Action {
 	}
 	if !Container().Config.IsMasterNode() && !Container().Config.IsWorkerNode() {
 		// Only Controller will be started, no nodes!
+		actionManager.CompleteWithMessage(action.Id, "Init Node: no nodes configured.\n")
 		return action
 	}
 	config, err := this.createVagrantConfig(Container().Config)

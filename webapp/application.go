@@ -118,15 +118,15 @@ func (app *WebApplication) HandleRequest(writer http.ResponseWriter, req *http.R
 
 	if action != nil {
 		actionResponse := (*action)(renderModel.Context, writer)
+		if actionResponse == nil || actionResponse.Complete {
+			return
+		}
 		if actionResponse.NextPage != "" {
 			nextPage, found := app.Pages[actionResponse.NextPage]
 			if !found {
 				panic("Invalid page: " + actionResponse.NextPage)
 			}
 			renderModel.Page = nextPage
-		}
-		if actionResponse == nil || actionResponse.Complete {
-			return
 		}
 		renderModel.Data = actionResponse.Model
 	}

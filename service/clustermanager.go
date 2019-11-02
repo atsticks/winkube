@@ -432,17 +432,27 @@ func (c clusterController) masterExec(command string) string {
 }
 
 func (this *clusterManager) StartLocalController(config *ClusterConfig, nodeId string) error {
+	action := (*GetActionManager()).StartAction("Staring Local Cluster Controller for cluster " + config.ClusterId)
+	defer action.Complete()
+
+	action.LogActionLn("Creating controller node config...")
+	localController := createLocalControllerNode(config.ClusterId, nodeId)
+	action.LogActionLn("Creating cluster controller...")
 	this.clusterController = clusterController{
-		controller:     createLocalControllerNode(config.ClusterId, nodeId),
+		controller:     localController,
 		config:         config,
 		masters:        []Node{},
 		workers:        []Node{},
 		clusterNetCIDR: netutil.CreateCIDR(config.ClusterNetCIDR),
 	}
+	action.LogActionLn("Validating cluster manager...")
 	err := Container().Validator.Struct(this)
 	if !util.CheckAndLogError("Failed to start cluster manager.", err) {
 		panic(err)
 	}
+	config.Controller = localController
+	action.LogActionLn("Starting cluster controller...")
+	defer action.LogActionLn("Cluster manager running.")
 	return this.clusterController.Start()
 }
 func (this *clusterManager) StartRemoteController(clusterConfig *ClusterConfig) error {
@@ -624,18 +634,19 @@ func createClusterManagerWebApp(controller *clusterController) *webapp.WebApplic
 	webapp.DeleteAction("/nodeip", controller.ActionReleaseNodeIP) // DELETE
 	webapp.PostAction("/node", controller.ActionNodeStarted)
 	webapp.DeleteAction("/node", controller.ActionNodeStopped)
-	webapp.DeleteAction("/masters", controller.ActionGetMasters)
-	webapp.DeleteAction("/workers", controller.ActionGetWorkers)
+	webapp.GetAction("/masters", controller.ActionGetMasters)
+	webapp.GetAction("/workers", controller.ActionGetWorkers)
 	return webapp
 }
 
 func (this clusterController) ActionServeClusterConfig(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	data, err := json.Marshal(this.config)
+	data, err := json.MarshalIndent(this.config, "", "  ")
 	if err != nil {
 		writer.Write([]byte("Failed to serialize config to JSON: " + err.Error()))
 		writer.WriteHeader(http.StatusInternalServerError)
 	} else {
 		writer.Write(data)
+		writer.Header().Set("Content-Type", "application/json")
 	}
 	return nil
 }
@@ -649,6 +660,7 @@ func (this clusterController) ActionReserveNodeIP(context *webapp.RequestContext
 	}
 	writer.Write([]byte(ip))
 	writer.WriteHeader(http.StatusOK)
+	writer.Header().Set("Content-Type", "text/plain")
 	return nil
 }
 func (this clusterController) ActionReleaseNodeIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
@@ -700,22 +712,24 @@ func (this clusterController) ActionNodeStopped(context *webapp.RequestContext, 
 	return nil
 }
 func (this clusterController) ActionGetMasters(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	data, err := json.Marshal(this.masters)
+	data, err := json.MarshalIndent(this.masters, "", "  ")
 	if err != nil {
 		writer.Write([]byte("Failed to mashal masters: " + err.Error()))
 		writer.WriteHeader(http.StatusInternalServerError)
 	}
 	writer.Write(data)
+	writer.Header().Set("Content-Type", "application/json")
 	writer.WriteHeader(http.StatusOK)
 	return nil
 }
 func (this clusterController) ActionGetWorkers(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	data, err := json.Marshal(this.workers)
+	data, err := json.MarshalIndent(this.workers, "", "  ")
 	if err != nil {
 		writer.Write([]byte("Failed to mashal workers: " + err.Error()))
 		writer.WriteHeader(http.StatusInternalServerError)
 	}
 	writer.Write(data)
+	writer.Header().Set("Content-Type", "application/json")
 	writer.WriteHeader(http.StatusOK)
 	return nil
 }
