@@ -99,7 +99,7 @@ func readNodeConfig(config *SystemConfiguration, context *webapp.RequestContext)
 	if (context.GetParameter("IsPrimaryMaster") != "" || context.GetParameter("IsController") != "") && config.MasterNode == nil {
 		config.MasterNode = &LocalNodeConfig{
 			IsJoiningNode: false,
-			NodeConfig: NodeConfig{
+			ClusterNodeConfig: ClusterNodeConfig{
 				NodeName:   "WinKube-" + config.ClusterLogin.ClusterId + "-Master",
 				NodeType:   Master,
 				NodeMemory: 2048,
@@ -114,7 +114,7 @@ func readNodeConfig(config *SystemConfiguration, context *webapp.RequestContext)
 		config.MasterNode == nil {
 		config.MasterNode = &LocalNodeConfig{
 			IsJoiningNode: true,
-			NodeConfig: NodeConfig{
+			ClusterNodeConfig: ClusterNodeConfig{
 				NodeName:   "WinKube-" + config.ClusterLogin.ClusterId + "-Master",
 				NodeType:   Master,
 				NodeMemory: 2048,
@@ -137,7 +137,7 @@ func readNodeConfig(config *SystemConfiguration, context *webapp.RequestContext)
 
 	if context.GetParameter("IsWorker") != "" && config.WorkerNode == nil {
 		config.WorkerNode = &LocalNodeConfig{
-			NodeConfig: NodeConfig{
+			ClusterNodeConfig: ClusterNodeConfig{
 				NodeName:   "WinKube-" + config.ClusterLogin.ClusterId + "-Worker",
 				NodeType:   Worker,
 				NodeMemory: 2048,

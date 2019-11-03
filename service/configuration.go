@@ -70,7 +70,7 @@ func NodeNetType_Values() []VMNetType {
 	}
 }
 
-type LocalNetConfig struct {
+type LocalHostConfig struct {
 	NetHostInterface string `validate:"required"`
 	NetHostIP        string `validate:"required"`
 }
@@ -82,15 +82,14 @@ type NetConfig struct {
 }
 
 type ClusterControllerConnection struct {
-	Controller *ControllerNode
+	ClusterId          string `validate:"required"`
+	ClusterCredentials string
+	Host               string `validate:"required"`
 }
 
 type ClusterConfig struct {
-	LocallyManaged     bool
-	ClusterId          string `validate:"required"`
-	ClusterCredentials string
-	ClusterControllerConnection
-
+	ClusterId            string `validate:"required"`
+	ClusterCredentials   string
 	ClusterPodCIDR       string    `validate:"required"`
 	ClusterServiceDomain string    `validate:"required"`
 	ClusterVMNet         VMNetType `validate:"required"`
@@ -99,58 +98,49 @@ type ClusterConfig struct {
 	ClusterMasterApiPort int
 	ClusterNetCIDR       string `validate:"required"`
 	ClusterToken         string
-	NetConfig
 }
 
-func (this ClusterConfig) isFullConfig() bool {
-	return this.ClusterPodCIDR != "" && this.ClusterServiceDomain != ""
-}
-
-type NodeConfig struct {
-	NodeName   string   `validate:"required"` // node
-	NodeType   NodeType `validate:"required"`
-	NodeIP     string
-	NodeMemory int `validate:"required,gte=1028"` // 2048
-	NodeCPU    int `validate:"required,gte=1"`    // 2
-}
-
-type LocalNodeConfig struct {
-	NodeConfig
+type ClusterNodeConfig struct {
+	NodeName       string   `validate:"required"` // node
+	NodeType       NodeType `validate:"required"`
+	NodeIP         string
+	NodeMemory     int `validate:"required,gte=1028"` // 2048
+	NodeCPU        int `validate:"required,gte=1"`    // 2
 	IsJoiningNode  bool
 	NodeBox        string `validate:"required"` // ubuntu/xenial64, centos/7
 	NodeBoxVersion string `validate:"required"` // 20180831.0.0
 }
 
-func (this *NetConfig) init(config *SystemConfiguration) *NetConfig {
-	this.MasterController = config.MasterController
-	this.NetUPnPPort = config.NetUPnPPort
-	this.NetMulticastEnabled = config.NetMulticastEnabled
-	return this
-}
-
-func (this *ClusterConfig) init(config *SystemConfiguration) *ClusterConfig {
-	this.ClusterId = config.ClusterLogin.ClusterId
-	this.ClusterCredentials = config.ClusterLogin.ClusterCredentials
-	if config.ClusterConfig != nil {
-		this.ClusterNetCIDR = config.ClusterConfig.ClusterNetCIDR
-		this.ClusterServiceDomain = config.ClusterConfig.ClusterServiceDomain
-		this.ClusterPodCIDR = config.ClusterConfig.ClusterPodCIDR
-		this.ClusterVMNet = config.ClusterConfig.ClusterVMNet
-		this.ClusterCredentials = config.ClusterConfig.ClusterCredentials
-		this.ClusterControlPlane = config.ClusterConfig.Controller.Host
-		this.ClusterMasters = config.ClusterConfig.ClusterMasters
-	}
-	return this
-}
+//func (this *NetConfig) init(config *SystemConfiguration) *NetConfig {
+//	this.MasterController = config.MasterController
+//	this.NetUPnPPort = config.NetUPnPPort
+//	this.NetMulticastEnabled = config.NetMulticastEnabled
+//	return this
+//}
+//
+//func (this *ClusterConfig) init(config *SystemConfiguration) *ClusterConfig {
+//	this.ClusterId = config.ClusterLogin.ClusterId
+//	this.ClusterCredentials = config.ClusterLogin.ClusterCredentials
+//	if config.ClusterConfig != nil {
+//		this.ClusterNetCIDR = config.ClusterConfig.ClusterNetCIDR
+//		this.ClusterServiceDomain = config.ClusterConfig.ClusterServiceDomain
+//		this.ClusterPodCIDR = config.ClusterConfig.ClusterPodCIDR
+//		this.ClusterVMNet = config.ClusterConfig.ClusterVMNet
+//		this.ClusterCredentials = config.ClusterConfig.ClusterCredentials
+//		this.ClusterControlPlane = config.ClusterConfig.Controller.Host
+//		this.ClusterMasters = config.ClusterConfig.ClusterMasters
+//	}
+//	return this
+//}
 
 type SystemConfiguration struct {
 	Id string `validate:"required", json:"id"`
+	LocalHostConfig
 	NetConfig
-	LocalNetConfig
-	ClusterLogin  *ClusterControllerConnection `validate:"required", json:"clusterLogin"`
+	ClusterLogin  *ClusterControllerConnection `json:"clusterLogin"`
 	ClusterConfig *ClusterConfig               `json:"cluster"`
-	MasterNode    *LocalNodeConfig             `json:"master"`
-	WorkerNode    *LocalNodeConfig             `json:"worker"`
+	MasterNode    *ClusterNodeConfig           `json:"master"`
+	WorkerNode    *ClusterNodeConfig           `json:"worker"`
 }
 
 func (this SystemConfiguration) IsWorkerNode() bool {
@@ -210,7 +200,7 @@ func InitAppConfig() *SystemConfiguration {
 			NetMulticastEnabled: true,
 			NetUPnPPort:         1900,
 		},
-		LocalNetConfig: LocalNetConfig{
+		LocalHostConfig: LocalHostConfig{
 			NetHostInterface: netutil.GetDefaultInterface().Name,
 			NetHostIP:        netutil.GetDefaultIP().String(),
 		},
@@ -247,7 +237,7 @@ func (config *SystemConfiguration) readConfig() *Action {
 	return actionManager.CompleteWithMessage(action.Id, "Config successfully read: \n\n"+fmt.Sprintf("Id: %v\nNet:%+v\nHost:%+v\nCluster:%+v\nMaster:%+v\nWorker:%+v\nNodes:%+v\n",
 		config.Id,
 		config.NetConfig,
-		config.LocalNetConfig,
+		config.LocalHostConfig,
 		config.ClusterConfig,
 		config.MasterNode,
 		config.WorkerNode))
