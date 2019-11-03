@@ -118,7 +118,7 @@
                 <p>{{ index .Messages "master-config.description"}}</p>
 
                 <label for="joiningMaster">{{ index .Messages "joining-master.label"}}</label>
-                <input type="text" readonly class="form-control-plaintext" id="joiningMaster" value="{{if .Data.Config.MasterNode.IsJoiningMaster}}{{ index .Messages "yes"}}{{else}}{{ index .Messages "no"}}{{end}}"/>
+                <input type="text" readonly class="form-control-plaintext" id="joiningMaster" value="{{if .Data.Config.MasterNode.IsJoiningNode}}{{ index .Messages "yes"}}{{else}}{{ index .Messages "no"}}{{end}}"/>
 
                 <label for="master-net_nodename">{{ index .Messages "master-name.label"}}</label>
                 <input name="Master-Name" type="text" class="form-control" id="master-net_nodename" aria-describedby="masterNameHelp" placeholder="{{ index .Messages "master-name.placeholder"}}"

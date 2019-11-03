@@ -217,12 +217,12 @@ func (this serviceRegistry) Unlisten(listener *ServiceListener) {
 	}
 }
 
-// Start regularly publishing the services exposed by this instance.
+// start regularly publishing the services exposed by this instance.
 func (this serviceRegistry) StartServiceCatalogue(serviceProvider *ServiceProvider, catalogs []string) {
 	panic("Not implemented: StartServiceCatalogue")
 }
 
-// Start regularly publishing the services exposed by this instance.
+// start regularly publishing the services exposed by this instance.
 func (this serviceRegistry) StartUPnP(serviceProvider *ServiceProvider, port int) {
 	if port == 0 {
 		port = 1900

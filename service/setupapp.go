@@ -18,7 +18,6 @@
 package service
 
 import (
-	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/winkube/util"
 	"github.com/winkube/webapp"
@@ -67,24 +66,28 @@ func readConfig(context *webapp.RequestContext) ConfigBean {
 		Values: Container().Config,
 	}
 	config := Container().Config
-	if context.GetParameter("ControllerConnection-Cluster-Id") != "" {
+	if context.GetParameter("ClusterControllerConnection-Cluster-Id") != "" {
 		config.ClusterLogin.ClusterId =
-			context.GetParameter("ControllerConnection-Cluster-Id")
+			context.GetParameter("ClusterControllerConnection-Cluster-Id")
 	}
-	if context.GetParameter("ControllerConnection-Cluster-Credentials") != "" {
+	if context.GetParameter("ClusterControllerConnection-Cluster-Credentials") != "" {
 		config.ClusterLogin.ClusterCredentials =
-			context.GetParameter("ControllerConnection-Cluster-Credentials")
+			context.GetParameter("ClusterControllerConnection-Cluster-Credentials")
 	}
 	// controller
 	if context.GetParameter("IsController") != "" {
 		config.ClusterConfig.LocallyManaged =
 			util.ParseBool(context.GetParameter("IsController"))
-		readClusterConfig(config.ClusterConfig, context)
-		config.ClusterLogin.ClusterId = config.ClusterConfig.ClusterId
-		config.ClusterLogin.ClusterCredentials = config.ClusterConfig.ClusterCredentials
-		Log().Debug("In: ClusterConfig.LocallyManaged = " + strconv.FormatBool(config.ClusterConfig.LocallyManaged))
-		Log().Debug("Applied: ControllerConnection based on current ClusterConfig")
+	} else if context.Request.Method == "POST" &&
+		context.GetParameter("selectNodes") != "" {
+		config.ClusterConfig.LocallyManaged = false
 	}
+	readClusterConfig(config.ClusterConfig, context)
+	config.ClusterLogin.ClusterId = config.ClusterConfig.ClusterId
+	config.ClusterLogin.ClusterCredentials = config.ClusterConfig.ClusterCredentials
+	Log().Debug("In: ClusterConfig.LocallyManaged = " + strconv.FormatBool(config.ClusterConfig.LocallyManaged))
+	Log().Debug("Applied: ClusterControllerConnection based on current ClusterConfig")
+
 	readNetConfig(config, context)
 	readNodeConfig(config, context)
 	bean.UseBridgedNetwork = config.ClusterConfig.ClusterVMNet == Bridged
@@ -93,9 +96,9 @@ func readConfig(context *webapp.RequestContext) ConfigBean {
 }
 
 func readNodeConfig(config *SystemConfiguration, context *webapp.RequestContext) {
-	if context.GetParameter("IsPrimaryMaster") != "" && config.MasterNode == nil {
+	if (context.GetParameter("IsPrimaryMaster") != "" || context.GetParameter("IsController") != "") && config.MasterNode == nil {
 		config.MasterNode = &LocalNodeConfig{
-			IsJoiningMode: false,
+			IsJoiningNode: false,
 			NodeConfig: NodeConfig{
 				NodeName:   "WinKube-" + config.ClusterLogin.ClusterId + "-Master",
 				NodeType:   Master,
@@ -106,9 +109,11 @@ func readNodeConfig(config *SystemConfiguration, context *webapp.RequestContext)
 			NodeBoxVersion: "20180831.0.0",
 		}
 	}
-	if context.GetParameter("IsJoiningMaster") != "" && config.MasterNode == nil {
+	if context.GetParameter("IsJoiningMaster") != "" &&
+		(context.GetParameter("IsPrimaryMaster") == "" || context.GetParameter("IsController") == "") &&
+		config.MasterNode == nil {
 		config.MasterNode = &LocalNodeConfig{
-			IsJoiningMode: true,
+			IsJoiningNode: true,
 			NodeConfig: NodeConfig{
 				NodeName:   "WinKube-" + config.ClusterLogin.ClusterId + "-Master",
 				NodeType:   Master,
@@ -118,9 +123,17 @@ func readNodeConfig(config *SystemConfiguration, context *webapp.RequestContext)
 			NodeBox:        "ubuntu/xenial64",
 			NodeBoxVersion: "20180831.0.0",
 		}
-		config.MasterNode.IsJoiningMode = true
+		config.MasterNode.IsJoiningNode = true
 	}
-	readLocalNodeConfig(config.MasterNode, context, "master-")
+	if context.Request.Method == "POST" &&
+		context.GetParameter("selectNodes") != "" &&
+		context.GetParameter("IsJoiningMaster") == "" &&
+		context.GetParameter("IsPrimaryMaster") == "" {
+		config.MasterNode = nil
+	}
+	if config.MasterNode != nil {
+		readLocalNodeConfig(config.MasterNode, context, "master-")
+	}
 
 	if context.GetParameter("IsWorker") != "" && config.WorkerNode == nil {
 		config.WorkerNode = &LocalNodeConfig{
@@ -133,9 +146,14 @@ func readNodeConfig(config *SystemConfiguration, context *webapp.RequestContext)
 			NodeBox:        "ubuntu/xenial64",
 			NodeBoxVersion: "20180831.0.0",
 		}
-		config.WorkerNode.IsJoiningMode = true
+		config.WorkerNode.IsJoiningNode = true
+	} else if context.Request.Method == "POST" &&
+		context.GetParameter("selectNodes") != "" {
+		config.WorkerNode = nil
 	}
-	readLocalNodeConfig(config.WorkerNode, context, "worker-")
+	if config.WorkerNode != nil {
+		readLocalNodeConfig(config.WorkerNode, context, "worker-")
+	}
 }
 
 func readNetConfig(config *SystemConfiguration, context *webapp.RequestContext) {
@@ -322,7 +340,7 @@ func Step2Action(context *webapp.RequestContext, writer http.ResponseWriter) *we
 
 func clusterOptions(clusterManager *ClusterManager) webapp.Options {
 	clusterOptions := webapp.Options{}
-	clusterIds := (*clusterManager).GetKnownClusterIDs()
+	clusterIds := (*clusterManager).GetKnownClusters()
 	// TODO remove this block
 	clusterIds = append(clusterIds, "ClusterId-1")
 	clusterIds = append(clusterIds, "ClusterId-2")
@@ -392,10 +410,11 @@ func Step3Action(context *webapp.RequestContext, writer http.ResponseWriter) *we
 func InstallConfigAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	// write config
 	config := Container().Config
-	_ = config.writeConfig()
 	nodeManager := *Container().NodeManager
+	action := (*GetActionManager()).StartAction("Validating configuration")
 	err := nodeManager.ValidateConfig()
 	if err != nil {
+		defer action.CompleteWitError(err)
 		data := make(map[string]interface{})
 		bean := readConfig(context)
 		data["Config"] = bean
@@ -405,13 +424,15 @@ func InstallConfigAction(context *webapp.RequestContext, writer http.ResponseWri
 			Model:    data,
 		}
 	} else {
-		fmt.Println("Validation successful...")
+		action.CompleteWithMessage("Successfully validated.")
+		Log().Info("Config validation successful.")
+		_ = config.writeConfig()
 	}
 	clusterManager := *Container().ClusterManager
 	if config.ClusterConfig.LocallyManaged {
-		err = clusterManager.StartLocalController(config.ClusterConfig, config.Id)
+		err = clusterManager.StartLocalManager(config.ClusterConfig, config.Id)
 	} else {
-		err = clusterManager.StartRemoteController(config.ClusterConfig)
+		err = clusterManager.StartRemoteManager(config.ClusterConfig)
 	}
 	if util.CheckAndLogError("Starting Cluster Manager", err) {
 		action := nodeManager.Initialize(true)

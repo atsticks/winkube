@@ -99,11 +99,11 @@ func configValidation(sl validator.StructLevel) {
 	if !config.ClusterConfig.NetMulticastEnabled && config.MasterController == "" {
 		sl.ReportError(config, "MasterController", "ClusterConfig.NetMulticastEnabled", "Multicast is disabled, but no MasterController is configured", "")
 	}
-	if config.WorkerNode != nil && !config.WorkerNode.IsJoiningMode {
-		sl.ReportError(config, "WorkerNode", "WorkerNode.IsJoiningMode", "A Worker must be joining always", "")
+	if config.WorkerNode != nil && !config.WorkerNode.IsJoiningNode {
+		sl.ReportError(config, "WorkerNode", "WorkerNode.IsJoiningNode", "A Worker must be joining always", "")
 	}
-	if config.ClusterConfig.ClusterToken == "" && config.MasterNode != nil && config.MasterNode.IsJoiningMode {
-		sl.ReportError(config, "ClusterConfig.ClusterToken", "MasterNode.IsJoiningMode", "To join a cluster a ClusterToken is required.", "")
+	if config.ClusterConfig.ClusterToken == "" && config.MasterNode != nil && config.MasterNode.IsJoiningNode {
+		sl.ReportError(config, "ClusterConfig.ClusterToken", "MasterNode.IsJoiningNode", "To join a cluster a ClusterToken is required.", "")
 	}
 	if config.ClusterConfig.ClusterToken == "" && config.WorkerNode != nil {
 		sl.ReportError(config, "ClusterConfig.ClusterToken", "WorkerNode", "To join a cluster a ClusterToken is required.", "")

@@ -33,15 +33,16 @@
     <form method="post" enctype="multipart/form-data">
         <input type="hidden" name="IsForm" value="true">
         <label for="masterselect">{{ index .Messages "setup-masterselect.label"}}</label>
+        <input type="hidden" name="selectNodes" value="true"/>
         <div class="form-group form-check" id="masterselect">
             <input type="checkbox" name="IsController" class="form-radio-input" id="setup_controller" value="true" {{ if .Data.Config.Values.IsControllerNode}}checked="true"{{end}}>
             <label class="form-check-label" for="setup_controller">{{ index .Messages "setup-controller.label"}}</label>
             <br/>
             <input type="checkbox" name="IsPrimaryMaster" class="form-radio-input" id="setup_pmaster" value="true" {{ if .Data.Config.Values.IsPrimaryMaster }}checked="true"{{end}}>
-            <label class="form-check-label" for="setup_pmaster">{{ index .Messages "setup-master.label"}}</label>
+            <label class="form-check-label" for="setup_pmaster">{{ index .Messages "setup-primary-master.label"}}</label>
             <br/>
             <input type="checkbox" name="IsJoiningMaster" class="form-radio-input" id="setup_jmaster" value="true" {{ if .Data.Config.Values.IsJoiningMaster }}checked="true"{{end}}>
-            <label class="form-check-label" for="setup_jmaster">{{ index .Messages "setup-master.label"}}</label>
+            <label class="form-check-label" for="setup_jmaster">{{ index .Messages "setup-joining-master.label"}}</label>
             <br/>
             <input type="checkbox" name="IsWorker" class="form-radio-input" id="setup_worker" value="true" {{ if .Data.Config.Values.IsWorkerNode}}checked="true"{{end}}>
             <label class="form-check-label" for="setup_worker">{{ index .Messages "setup-worker.label"}}</label>

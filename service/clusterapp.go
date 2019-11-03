@@ -28,7 +28,7 @@ import (
 
 func ClusterWebApplication(router *mux.Router) *webapp.WebApplication {
 	Log().Info("Initializing cluster endpoint...")
-	setupWebapp := webapp.CreateWebApp("WinKube-ClusterState", "/cluster", language.English)
+	setupWebapp := webapp.CreateWebApp("WinKube-Cluster", "/cluster", language.English)
 	// Actions
 	setupWebapp.GetAction("/nodes", NodesAction)
 	setupWebapp.GetAction("/config", ConfigAction)
@@ -63,7 +63,7 @@ func ConfigAction(context *webapp.RequestContext, writer http.ResponseWriter) *w
 	// Collect messages
 	config := Container().Config
 	data, err := json.Marshal(config)
-	util.CheckAndLogError("Cannot create ClusterState Record", err)
+	util.CheckAndLogError("Cannot create Cluster Record", err)
 	writer.Write(data)
 	return &webapp.ActionResponse{
 		Complete: true,

@@ -82,7 +82,7 @@ func createNodeConfigs(clusterConfig *ClusterConfig, masterNode *LocalNodeConfig
 			Cpu:        masterNode.NodeCPU,
 			NodeType:   masterNode.NodeType,
 			NetType:    clusterConfig.ClusterVMNet.String(),
-			Joinining:  masterNode.IsJoiningMode,
+			Joinining:  masterNode.IsJoiningNode,
 		}
 		result = append(result, node)
 	}
@@ -167,7 +167,7 @@ func (this nodeManager) GetServices() []netutil.Service {
 				AdType:   WINKUBE_ADTYPE,
 				Id:       config.Id,
 				Location: config.MasterNode.NodeIP + ":9999",
-				Service:  "Master:" + config.ClusterLogin.ClusterId,
+				Service:  "Master:" + config.ClusterConfig.ClusterId,
 				Version:  WINKUBE_VERSION,
 				Server:   util.RuntimeInfo(),
 				MaxAge:   5,
@@ -178,7 +178,7 @@ func (this nodeManager) GetServices() []netutil.Service {
 				AdType:   WINKUBE_ADTYPE,
 				Id:       config.Id,
 				Location: config.WorkerNode.NodeIP + ":9999",
-				Service:  "Master:" + config.ClusterLogin.ClusterId,
+				Service:  "Master:" + config.ClusterConfig.ClusterId,
 				Version:  WINKUBE_VERSION,
 				Server:   util.RuntimeInfo(),
 				MaxAge:   5,
@@ -244,7 +244,7 @@ func (this nodeManager) Initialize(override bool) *Action {
 
 func (this nodeManager) StartNode() *Action {
 	actionManager := (*GetActionManager())
-	action := actionManager.StartAction("Start Node")
+	action := actionManager.StartAction("start Node")
 	if !Container().Config.IsWorkerNode() && !Container().Config.IsWorkerNode() {
 		// nothing to start
 		actionManager.CompleteWithMessage(action.Id, "Completed. No nodes to start.")
@@ -253,8 +253,8 @@ func (this nodeManager) StartNode() *Action {
 
 	go func() {
 		if util.FileExists("Vagrantfile") {
-			_, cmdReader, err := util.RunCommand("Start Node...", "vagrant", "up")
-			if util.CheckAndLogError("Start Node: Starting vagrant failed", err) {
+			_, cmdReader, err := util.RunCommand("start Node...", "vagrant", "up")
+			if util.CheckAndLogError("start Node: Starting vagrant failed", err) {
 				fmt.Println("vagrant up")
 				actionManager.LogAction(action.Id, "vagrant up\n")
 				scanner := bufio.NewScanner(cmdReader)
@@ -266,7 +266,7 @@ func (this nodeManager) StartNode() *Action {
 				actionManager.LogAction(action.Id, "\n")
 			}
 		} else {
-			actionManager.LogAction(action.Id, "Start Node failed: not initialized.\n")
+			actionManager.LogAction(action.Id, "start Node failed: not initialized.\n")
 		}
 		actionManager.Complete(action.Id)
 	}()

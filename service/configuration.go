@@ -60,10 +60,11 @@ const (
 )
 
 func (this VMNetType) String() string {
-	return [...]string{"NAT", "Bridged"}[this]
+	return [...]string{"UndefinedNetType", "NAT", "Bridged"}[this]
 }
 func NodeNetType_Values() []VMNetType {
 	return []VMNetType{
+		UndefinedNetType,
 		NAT,
 		Bridged,
 	}
@@ -80,15 +81,16 @@ type NetConfig struct {
 	MasterController    string
 }
 
-type ControllerConnection struct {
-	ClusterId          string `validate:"required"`
-	ClusterCredentials string
-	Controller         *ControllerNode
+type ClusterControllerConnection struct {
+	Controller *ControllerNode
 }
 
 type ClusterConfig struct {
-	LocallyManaged bool
-	ControllerConnection
+	LocallyManaged     bool
+	ClusterId          string `validate:"required"`
+	ClusterCredentials string
+	ClusterControllerConnection
+
 	ClusterPodCIDR       string    `validate:"required"`
 	ClusterServiceDomain string    `validate:"required"`
 	ClusterVMNet         VMNetType `validate:"required"`
@@ -114,7 +116,7 @@ type NodeConfig struct {
 
 type LocalNodeConfig struct {
 	NodeConfig
-	IsJoiningMode  bool
+	IsJoiningNode  bool
 	NodeBox        string `validate:"required"` // ubuntu/xenial64, centos/7
 	NodeBoxVersion string `validate:"required"` // 20180831.0.0
 }
@@ -145,10 +147,10 @@ type SystemConfiguration struct {
 	Id string `validate:"required", json:"id"`
 	NetConfig
 	LocalNetConfig
-	ClusterLogin  *ControllerConnection `validate:"required", json:"clusterLogin"`
-	ClusterConfig *ClusterConfig        `json:"cluster"`
-	MasterNode    *LocalNodeConfig      `json:"master"`
-	WorkerNode    *LocalNodeConfig      `json:"worker"`
+	ClusterLogin  *ClusterControllerConnection `validate:"required", json:"clusterLogin"`
+	ClusterConfig *ClusterConfig               `json:"cluster"`
+	MasterNode    *LocalNodeConfig             `json:"master"`
+	WorkerNode    *LocalNodeConfig             `json:"worker"`
 }
 
 func (this SystemConfiguration) IsWorkerNode() bool {
@@ -158,10 +160,10 @@ func (this SystemConfiguration) IsMasterNode() bool {
 	return this.MasterNode != nil
 }
 func (this SystemConfiguration) IsPrimaryMaster() bool {
-	return this.MasterNode != nil && !this.MasterNode.IsJoiningMode
+	return this.MasterNode != nil && !this.MasterNode.IsJoiningNode
 }
 func (this SystemConfiguration) IsJoiningMaster() bool {
-	return this.MasterNode != nil && this.MasterNode.IsJoiningMode
+	return this.MasterNode != nil && this.MasterNode.IsJoiningNode
 }
 func (this SystemConfiguration) IsControllerNode() bool {
 	return this.ClusterConfig != nil && this.ClusterConfig.LocallyManaged
@@ -183,13 +185,13 @@ func InitAppConfig() *SystemConfiguration {
 	nodeId := uuid.New().String()
 	var appConfig SystemConfiguration = SystemConfiguration{
 		Id: nodeId,
-		ClusterLogin: &ControllerConnection{
+		ClusterLogin: &ClusterControllerConnection{
 			ClusterId:          "MyCluster",
 			ClusterCredentials: "MyCluster",
 			Controller:         createLocalControllerNode("MyCluster", nodeId),
 		},
 		ClusterConfig: &ClusterConfig{
-			ControllerConnection: ControllerConnection{
+			ClusterControllerConnection: ClusterControllerConnection{
 				ClusterId:          "MyCluster",
 				ClusterCredentials: "MyCluster",
 			},
