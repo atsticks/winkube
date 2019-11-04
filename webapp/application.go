@@ -97,21 +97,21 @@ func (app *WebApplication) HandleRequest(writer http.ResponseWriter, req *http.R
 	var language language.Tag = langs[0]
 	// get action...
 	// Get a session. Get() always returns a session, even if empty.
-	session, err := app.sessionStore.Get(req, "app-"+app.Name)
-	if err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	//session, err := app.sessionStore.Get(req, "app-"+app.Name)
+	//if err != nil {
+	//	http.Error(writer, err.Error(), http.StatusInternalServerError)
+	//	return
+	//}
 	// Save session at end
-	defer session.Save(req, writer)
+	//defer session.Save(req, writer)
 	var renderModel *RenderModel = &RenderModel{
 		Messages: app.Translations.Properties(language),
 	}
 	renderModel.Context = &RequestContext{
 		Application: app,
 		Request:     req,
-		Session:     session,
-		Language:    language,
+		//Session:     session,
+		Language: language,
 	}
 
 	var action = app.findAction(req)
@@ -357,4 +357,16 @@ func (this RequestContext) setRequestAttribute(key string, value interface{}) in
 	oldVal := this.Attributes[key]
 	this.Attributes[key] = value
 	return oldVal
+}
+
+func (this RequestContext) GetMessage(message string) string {
+	props := this.Application.Translations.Properties(this.Language)
+	if props == nil {
+		return "&lt;message:" + message + ":unspported_lang=" + this.Language.String() + "&gt;"
+	}
+	val := props[message]
+	if val == "" {
+		return "&lt;" + message + "&gt;"
+	}
+	return val
 }

@@ -17,11 +17,13 @@ package service
 import (
 	"bufio"
 	"fmt"
+	"github.com/winkube/service/assert"
 	"github.com/winkube/service/netutil"
 	"github.com/winkube/util"
 	"gopkg.in/go-playground/validator.v9"
 	"os"
 	"strings"
+	"time"
 )
 
 type VagrantNode struct {
@@ -105,61 +107,62 @@ type NodeManager interface {
 }
 
 type nodeManager struct {
-	isSetup         bool
+	config          *SystemConfiguration
 	templateManager *util.TemplateManager
+	serviceRegistry *netutil.ServiceRegistry
+	running         bool
 }
 
-func createNodeManager() *NodeManager {
-
+func createNodeManager(serviceRegistry *netutil.ServiceRegistry) *NodeManager {
+	assert.AssertNotNil(serviceRegistry)
 	templateManager := util.CreateTemplateManager()
 	templateManager.InitTemplates(map[string]string{"vagrant": "templates/vagrant/Vagrantfile"})
-	var manager NodeManager = nodeManager{
-		isSetup:         false,
+	var manager NodeManager = &nodeManager{
 		templateManager: templateManager,
+		serviceRegistry: serviceRegistry,
 	}
 	return &manager
 }
 
-func (this nodeManager) IsReady() bool {
-	return util.FileExists("Vagrantfile")
+func (this *nodeManager) IsReady() bool {
+	return this.running && util.FileExists("Vagrantfile")
 }
 
-func (this nodeManager) ValidateConfig() error {
-	return Container().Validator.Struct(Container().Config)
+func (this *nodeManager) ValidateConfig() error {
+	return Container().Validator.Struct(config)
 }
 
-func (this nodeManager) GetServices() []netutil.Service {
-	config := Container().Config
+func (this *nodeManager) GetServices() []netutil.Service {
 	var result []netutil.Service
-	if config.Ready() {
-		if config.IsControllerNode() {
+	if this.config.Ready() {
+		if this.config.IsControllerNode() {
 			result = append(result, netutil.Service{
 				AdType:   WINKUBE_ADTYPE,
-				Id:       config.Id,
-				Location: config.NetHostIP + ":9999",
-				Service:  "Controller:" + config.ClusterId(),
+				Id:       this.config.Id,
+				Location: this.config.NetHostIP + ":9999",
+				Service:  "Controller:" + this.config.ClusterId(),
 				Version:  WINKUBE_VERSION,
 				Server:   util.RuntimeInfo(),
 				MaxAge:   5,
 			})
 		}
-		if config.IsMasterNode() {
+		if this.config.IsMasterNode() {
 			result = append(result, netutil.Service{
 				AdType:   WINKUBE_ADTYPE,
-				Id:       config.Id,
-				Location: config.MasterNode.NodeIP + ":9999",
-				Service:  "Master:" + config.ClusterId(),
+				Id:       this.config.Id,
+				Location: this.config.MasterNode.NodeIP + ":9999",
+				Service:  "Master:" + this.config.ClusterId(),
 				Version:  WINKUBE_VERSION,
 				Server:   util.RuntimeInfo(),
 				MaxAge:   5,
 			})
 		}
-		if config.IsWorkerNode() {
+		if this.config.IsWorkerNode() {
 			result = append(result, netutil.Service{
 				AdType:   WINKUBE_ADTYPE,
-				Id:       config.Id,
-				Location: config.WorkerNode.NodeIP + ":9999",
-				Service:  "Master:" + config.ClusterId(),
+				Id:       this.config.Id,
+				Location: this.config.WorkerNode.NodeIP + ":9999",
+				Service:  "Master:" + this.config.ClusterId(),
 				Version:  WINKUBE_VERSION,
 				Server:   util.RuntimeInfo(),
 				MaxAge:   5,
@@ -169,11 +172,13 @@ func (this nodeManager) GetServices() []netutil.Service {
 	return result
 }
 
-func (this nodeManager) ConfigureNodes(systemConfig SystemConfiguration, clusterConfig ClusterConfig, override bool) *Action {
+func (this *nodeManager) ConfigureNodes(systemConfig SystemConfiguration, clusterConfig ClusterConfig, override bool) *Action {
+	assert.AssertNotNil(systemConfig)
+	assert.AssertNotNil(clusterConfig)
 	actionManager := (*GetActionManager())
 	action := actionManager.StartAction("Configure Nodes")
-
-	if !Container().Config.IsMasterNode() && !Container().Config.IsWorkerNode() {
+	this.config = &systemConfig
+	if !this.config.IsMasterNode() && !this.config.IsWorkerNode() {
 		// Only Controller will be started, no nodes!
 		actionManager.CompleteWithMessage(action.Id, "Configure Nodes: no nodes to be started.\n")
 		return action
@@ -197,19 +202,23 @@ func (this nodeManager) ConfigureNodes(systemConfig SystemConfiguration, cluster
 	return action
 }
 
-func createVagrantConfig(appConfig SystemConfiguration, clusterConfig ClusterConfig) VagrantConfig {
+func createVagrantConfig(systemConfiguration SystemConfiguration, clusterConfig ClusterConfig) VagrantConfig {
 	config := VagrantConfig{
 		NetCIDR:           clusterConfig.ClusterNetCIDR,
 		PodNetCIDR:        clusterConfig.ClusterPodCIDR,
 		ApiServerBindPort: clusterConfig.ClusterMasterApiPort,
 		ServiceDNSDomain:  clusterConfig.ClusterServiceDomain,
-		HostInterface:     appConfig.NetHostInterface,
-		HostIp:            appConfig.GetHostIp(),
+		HostInterface:     systemConfiguration.NetHostInterface,
+		HostIp:            systemConfiguration.GetHostIp(),
 		NetType:           clusterConfig.ClusterVMNet,
-		NodeConfigs:       createNodeConfigs(clusterConfig, appConfig.MasterNode, appConfig.WorkerNode),
+		NodeConfigs:       createNodeConfigs(clusterConfig, systemConfiguration.MasterNode, systemConfiguration.WorkerNode),
 	}
-	if appConfig.MasterNode != nil {
-		config.LocalMaster = appConfig.MasterNode.NodeIP
+	if systemConfiguration.IsPrimaryMaster() {
+		config.LocalMaster = systemConfiguration.MasterNode.NodeIP
+		if config.LocalMaster == "" {
+			config.LocalMaster = clusterConfig.ClusterControlPlane
+
+		}
 		if config.PublicMaster == "" {
 			config.PublicMaster = config.LocalMaster
 		}
@@ -217,89 +226,98 @@ func createVagrantConfig(appConfig SystemConfiguration, clusterConfig ClusterCon
 	return config
 }
 
-func (this nodeManager) StartNodes() *Action {
+func (this *nodeManager) StartNodes() *Action {
+	assert.AssertNotNil(this.config)
 	actionManager := (*GetActionManager())
 	action := actionManager.StartAction("Start Nodes")
-	if !Container().Config.IsWorkerNode() && !Container().Config.IsWorkerNode() {
+	defer actionManager.Complete(action.Id)
+	if !this.config.IsWorkerNode() && !this.config.IsWorkerNode() {
 		// nothing to start
 		actionManager.CompleteWithMessage(action.Id, "Completed. No nodes to start.")
 		return action
 	}
-
-	go func() {
-		if util.FileExists("Vagrantfile") {
-			_, cmdReader, err := util.RunCommand("start Nodes...", "vagrant", "up")
-			if util.CheckAndLogError("start Nodes: Starting vagrant failed", err) {
-				fmt.Println("vagrant up")
-				actionManager.LogAction(action.Id, "vagrant up\n")
-				scanner := bufio.NewScanner(cmdReader)
-				for scanner.Scan() {
-					text := (scanner.Text())
-					fmt.Printf("\t%s\n", text)
-					actionManager.LogAction(action.Id, fmt.Sprintf("%s\n", text))
-				}
-				actionManager.LogAction(action.Id, "\n")
+	if util.FileExists("Vagrantfile") {
+		_, cmdReader, err := util.RunCommand("start Nodes...", "vagrant", "up")
+		if util.CheckAndLogError("start Nodes: Starting vagrant failed", err) {
+			fmt.Println("vagrant up")
+			actionManager.LogAction(action.Id, "vagrant up\n")
+			scanner := bufio.NewScanner(cmdReader)
+			for scanner.Scan() {
+				text := (scanner.Text())
+				fmt.Printf("\t%s\n", text)
+				actionManager.LogAction(action.Id, fmt.Sprintf("%s\n", text))
 			}
-		} else {
-			actionManager.LogAction(action.Id, "start Nodes failed: not configured.\n")
+			actionManager.LogAction(action.Id, "\n")
 		}
-		actionManager.Complete(action.Id)
-	}()
+	} else {
+		actionManager.LogAction(action.Id, "start Nodes failed: not configured.\n")
+	}
+	go this.publishServices()
 	return action
 }
 
-func (this nodeManager) StopNodes() *Action {
+func (this *nodeManager) publishServices() {
+	this.running = true
+	Log().Info("Starting service publish loop...")
+	for this.running {
+		Log().Debug("Updating service registry...")
+		(*this.serviceRegistry).AddServices("NodeManager", this.GetServices())
+		time.Sleep(10 * time.Second)
+	}
+	Log().Info("Service publish loop stopped.")
+}
+
+func (this *nodeManager) StopNodes() *Action {
 	actionManager := (*GetActionManager())
 	action := actionManager.StartAction("Stop Nodes...")
-	go func() {
-		if util.FileExists("Vagrantfile") {
-			_, cmdReader, err := util.RunCommand("Stopping any running instances...", "vagrant", "halt")
-			if util.CheckAndLogError("Stop Nodes: Starting vagrant failed", err) {
-				fmt.Println("vagrant halt")
-				actionManager.LogAction(action.Id, "vagrant halt\n")
-				scanner := bufio.NewScanner(cmdReader)
-				for scanner.Scan() {
-					text := (scanner.Text())
-					fmt.Printf("\t%s\n", text)
-					actionManager.LogAction(action.Id, fmt.Sprintf("%s\n", text))
-				}
-				actionManager.LogAction(action.Id, "\n")
+	this.running = false
+	Log().Debug("Cleaning service registry...")
+	(*this.serviceRegistry).RemoveServices("NodeManager")
+	if util.FileExists("Vagrantfile") {
+		_, cmdReader, err := util.RunCommand("Stopping any running instances...", "vagrant", "halt")
+		if util.CheckAndLogError("Stop Nodes: Starting vagrant failed", err) {
+			fmt.Println("vagrant halt")
+			actionManager.LogAction(action.Id, "vagrant halt\n")
+			scanner := bufio.NewScanner(cmdReader)
+			for scanner.Scan() {
+				text := (scanner.Text())
+				fmt.Printf("\t%s\n", text)
+				actionManager.LogAction(action.Id, fmt.Sprintf("%s\n", text))
 			}
-		} else {
-			actionManager.LogAction(action.Id, "Stop Nodes failed: not configured.\n")
+			actionManager.LogAction(action.Id, "\n")
 		}
-		actionManager.Complete(action.Id)
-	}()
+	} else {
+		actionManager.LogAction(action.Id, "Stop Nodes failed: not configured.\n")
+	}
+	actionManager.Complete(action.Id)
 	return action
 }
 
-func (this nodeManager) DestroyNodes() *Action {
+func (this *nodeManager) DestroyNodes() *Action {
 	Log().Info("Destroy nodes...")
 	actionManager := *GetActionManager()
 	action := actionManager.StartAction("Destroy nodes")
-	go func() {
-		if util.FileExists("Vagrantfile") {
-			_, cmdReader, err := util.RunCommand("Stopping any running instances...", "vagrant", "destroy")
-			if util.CheckAndLogError("Destroy Node: Starting vagrant failed", err) {
-				fmt.Println("vagrant -f destroy")
-				actionManager.LogAction(action.Id, "vagrant -f destroy\n")
-				scanner := bufio.NewScanner(cmdReader)
-				for scanner.Scan() {
-					text := (scanner.Text())
-					fmt.Printf("\t%s\n", text)
-					actionManager.LogAction(action.Id, fmt.Sprintf("%s\n", text))
-				}
-				actionManager.LogAction(action.Id, "\n")
+	defer actionManager.Complete(action.Id)
+	if util.FileExists("Vagrantfile") {
+		_, cmdReader, err := util.RunCommand("Stopping any running instances...", "vagrant", "destroy")
+		if util.CheckAndLogError("Destroy Node: Starting vagrant failed", err) {
+			fmt.Println("vagrant -f destroy")
+			actionManager.LogAction(action.Id, "vagrant -f destroy\n")
+			scanner := bufio.NewScanner(cmdReader)
+			for scanner.Scan() {
+				text := (scanner.Text())
+				fmt.Printf("\t%s\n", text)
+				actionManager.LogAction(action.Id, fmt.Sprintf("%s\n", text))
 			}
-		} else {
-			actionManager.LogAction(action.Id, "Destroy Nodes failed: not initialized.\n")
+			actionManager.LogAction(action.Id, "\n")
 		}
-		actionManager.Complete(action.Id)
-	}()
+	} else {
+		actionManager.LogAction(action.Id, "Destroy Nodes failed: not initialized.\n")
+	}
 	return action
 }
 
-func (this nodeManager) DestroyNode(name string) *Action {
+func (this *nodeManager) DestroyNode(name string) *Action {
 	Log().Info("Destroy node: " + name + "...")
 	actionManager := *GetActionManager()
 	action := actionManager.StartAction("Destroy node: " + name)

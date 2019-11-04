@@ -152,8 +152,16 @@ func (this *actionManager) Complete(id string) *Action {
 }
 func (this *actionManager) CompleteWithMessage(id string, message string) *Action {
 	now := time.Now()
+
 	a := this.runningActions[id]
+
 	if a != nil {
+		if a.Finished() {
+			if message != "" {
+				Log().Warn("Logging a message to a already completed action: " + a.Command + " - " + message)
+			}
+			return a
+		}
 		if message != "" {
 			a.log.WriteString(message + "\n")
 		}

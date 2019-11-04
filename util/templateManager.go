@@ -69,6 +69,7 @@ func (tm TemplateManager) parseTemplate(name string, templateString string) *tem
 }
 
 func (tm TemplateManager) ExecuteTemplate(templateName string, context interface{}) string {
+
 	var sw = &strings.Builder{}
 	template := tm.Templates[templateName]
 	if template == nil {

@@ -30,6 +30,9 @@
     <h1>{{ index .Messages "winkube.setup.step1.title"}}</h1>
     <p>{{ index .Messages "winkube.setup1.description"}}</p>
     <p>{{ index .Messages "winkube.setup1.info"}}</p>
+    {{if .Data.message}}
+        <p><font color="red">{{.Data.message}}</font></p>
+    {{end}}
     <form method="post" enctype="multipart/form-data">
         <input type="hidden" name="IsForm" value="true">
         <label for="masterselect">{{ index .Messages "setup-masterselect.label"}}</label>

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/winkube/service"
+	"github.com/winkube/service/assert"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -66,15 +67,16 @@ func manageState() {
 					(*service.Container().LocalController).Start(config)
 					action.LogActionLn("Resetting nodes...")
 					(*service.Container().NodeManager).DestroyNodes()
-					action.LogActionLn("Resetting nodes...")
-					(*service.Container().NodeManager).ConfigureNodes(*config, (*service.Container().LocalController).GetClusterConfig(), true)
+					action.LogActionLn("Configuring nodes...")
+					clusterConfig := (*service.Container().LocalController).GetClusterConfig()
+					assert.AssertNotNil(clusterConfig)
+					(*service.Container().NodeManager).ConfigureNodes(*config, clusterConfig, true)
 					log.Info("Starting nodes...")
 					action.LogActionLn("Starting nodes...")
 					(*service.Container().NodeManager).StartNodes()
 					log.Info("Registering services...")
-					action.LogActionLn("Registering services...")
-					(*service.Container().ServiceRegistry).AddServiceProvider((*service.Container().NodeManager).GetServices)
 					service.Container().CurrentStatus = service.APPSTATE_RUNNING
+					log.Info("New Mode applied: RUNNING")
 					action.CompleteWithMessage("New Mode applied: RUNNING")
 				} else {
 					service.Container().RequiredAppStatus = service.APPSTATE_SETUP

@@ -69,8 +69,9 @@ func Start() {
 	container = &appContainer
 	appContainer.Config = config()
 	appContainer.Router = router()
-	appContainer.ServiceRegistry = netutil.InitServiceRegistry(WINKUBE_ADTYPE)
+	appContainer.ServiceRegistry = netutil.CreateServiceRegistry(WINKUBE_ADTYPE)
 	appContainer.LocalController = CreateLocalController(container.ServiceRegistry)
+	appContainer.NodeManager = createNodeManager(appContainer.ServiceRegistry)
 	appContainer.CurrentStatus = APPSTATE_INITIALIZED
 	appContainer.Logger.Info("WinKube is initialized, continue...")
 }

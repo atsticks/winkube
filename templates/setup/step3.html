@@ -61,7 +61,7 @@
             <tbody>
             <tr>
                 <th scope="row" width="50%">{{ index .Messages "cluster-net-cidr.label"}}</th>
-                <td><input type="text" readonly class="form-control-plaintext" id="ip_interface" value="{{ .Data.Config.Values.ClusterConfig.ClusterNetCIDR}}"></td>
+                <td><input type="text" readonly class="form-control-plaintext" id="ip_interface" value="{{ .Data.Config.Values.ControllerConfig.ClusterNetCIDR}}"></td>
             </tr>
             <tr>
                 <th scope="row" width="50%">{{ index .Messages "interface.label"}}</th>
@@ -103,31 +103,31 @@
             {{else}}
             <tr>
                 <th scope="row" width="50%">{{ index .Messages "cluster-id.label"}}</th>
-                <td><input type="text" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ClusterConfig.ClusterId }}"></td>
+                <td><input type="text" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ControllerConfig.ClusterId }}"></td>
             </tr>
             <tr>
                 <th scope="row" width="50%">{{ index .Messages "cluster-credentials.label"}}</th>
-                <td><input type="password" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ClusterConfig.ClusterCredentials }}"></td>
+                <td><input type="password" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ControllerConfig.ClusterCredentials }}"></td>
             </tr>
             <tr>
                 <th scope="row" width="50%">{{ index .Messages "cluster-cidr.label"}}</th>
-                <td><input type="text" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ClusterConfig.ClusterPodCIDR }}"></td>
+                <td><input type="text" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ControllerConfig.ClusterPodCIDR }}"></td>
             </tr>
             <tr>
                 <th scope="row" width="50%">{{ index .Messages "cluster-net-cidr.label"}}</th>
-                <td><input type="text" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ClusterConfig.ClusterNetCIDR }}"></td>
+                <td><input type="text" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ControllerConfig.ClusterNetCIDR }}"></td>
             </tr>
             <tr>
                 <th scope="row" width="50%">{{ index .Messages "cluster-service-domain.label"}}</th>
-                <td><input type="text" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ClusterConfig.ClusterServiceDomain }}"></td>
+                <td><input type="text" readonly class="form-control-plaintext" value="{{ .Data.Config.Values.ControllerConfig.ClusterServiceDomain }}"></td>
             </tr>
             <tr>
                 <th scope="row" width="50%">{{ index .Messages "cluster-network.label"}}</th>
-                <td><input type="text" readonly class="form-control-plaintext" id="ip_interface" value="{{ .Data.Config.Values.ClusterConfig.ClusterVMNet.String}}"></td>
+                <td><input type="text" readonly class="form-control-plaintext" id="ip_interface" value="{{ .Data.Config.Values.ControllerConfig.ClusterVMNet.String}}"></td>
             </tr>
             <tr>
                 <th scope="row" width="50%">{{ index .Messages "cluster-master-api-port.label"}}</th>
-                <td><input type="text" readonly class="form-control-plaintext" name="ClusterMasterApiPort" value="{{ .Data.Config.Values.ClusterConfig.ClusterMasterApiPort}}"></td>
+                <td><input type="text" readonly class="form-control-plaintext" name="ClusterMasterApiPort" value="{{ .Data.Config.Values.ControllerConfig.ClusterMasterApiPort}}"></td>
             </tr>
             {{end}}
             </tbody>

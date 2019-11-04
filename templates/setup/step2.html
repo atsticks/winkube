@@ -30,6 +30,9 @@
     <h1>{{index .Messages "winkube.setup.step2.title"}}</h1>
     <p>{{ index .Messages "winkube.setup2.description"}}</p>
     <p>{{ index .Messages "winkube.setup2.info"}}</p>
+    {{if .Data.message}}
+        <p><font color="red">{{.Data.message}}</font></p>
+    {{end}}
     <form method="post" enctype="multipart/form-data">
         <input name="IsForm" type="hidden" value="true">
         <div class="form-group" id="basicconfig">
@@ -69,7 +72,7 @@
                 <small id="clusterHelp" class="form-text text-muted">{{ index .Messages "cluster-credentials.help"}}</small>
 
                 <label for="cred">*{{ index .Messages "cluster-controllerhost.label"}}</label>
-                <input name="ClusterLogin-Credentials" type="text" class="form-control" id="cred" aria-describedby="clusterControllerHelp" placeholder="{{ index .Messages "cluster-controllerhost.placeholder"}}"
+                <input name="ClusterLogin-Controller" type="text" class="form-control" id="cred" aria-describedby="clusterControllerHelp" placeholder="{{ index .Messages "cluster-controllerhost.placeholder"}}"
                        value="{{ .Data.Config.Values.ClusterLogin.ControllerHost }}">
                 <small id="clusterControllerHelp" class="form-text text-muted">{{ index .Messages "cluster-controllerhost.help"}}</small>
             </div>
@@ -123,7 +126,7 @@
                 <p>{{ index .Messages "master-config.description"}}</p>
 
                 <label for="joiningMaster">{{ index .Messages "joining-master.label"}}</label>
-                <input type="text" readonly class="form-control-plaintext" id="joiningMaster" value="{{if .Data.Config.MasterNode.IsJoiningNode}}{{ index .Messages "yes"}}{{else}}{{ index .Messages "no"}}{{end}}"/>
+                <input type="text" readonly class="form-control-plaintext" id="joiningMaster" value="{{if not .Data.Config.Values.IsControllerNode}}{{ index .Messages "yes"}}{{else}}{{ index .Messages "no"}}{{end}}"/>
 
                 <label for="master-net_nodename">{{ index .Messages "master-name.label"}}</label>
                 <input name="Master-Name" type="text" class="form-control" id="master-net_nodename" aria-describedby="masterNameHelp" placeholder="{{ index .Messages "master-name.placeholder"}}"

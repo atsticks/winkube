@@ -48,6 +48,7 @@ func SetupWebApplication(router *mux.Router) *webapp.WebApplication {
 	// Actions
 	setupWebapp.GetAction("/", IndexAction)
 	setupWebapp.GetAction("/step1", Step1Action)
+	setupWebapp.PostAction("/step1", Step1Action)
 	setupWebapp.PostAction("/step2", Step2Action)
 	setupWebapp.PostAction("/step3", Step3Action)
 	setupWebapp.PostAction("/install", InstallConfigAction)
@@ -62,10 +63,11 @@ type ConfigBean struct {
 
 func readConfig(context *webapp.RequestContext) ConfigBean {
 	context.Request.ParseMultipartForm(32000)
-	bean := ConfigBean{
-		Values: Container().Config,
-	}
 	config := Container().Config
+	bean := ConfigBean{
+		Values: config,
+	}
+
 	// controllerConnection
 	if context.GetParameter("IsController") != "" {
 		if util.ParseBool(context.GetParameter("IsController")) {
@@ -84,21 +86,26 @@ func readConfig(context *webapp.RequestContext) ConfigBean {
 
 	readNetConfig(config, context)
 	readNodeConfig(config, context)
+	if !config.IsControllerNode() {
+		config.ControllerConfig = nil
+	} else {
+		config.ClusterLogin = nil
+	}
 	return bean
 }
 
 func readClusterConnectionConfig(config *SystemConfiguration, context *webapp.RequestContext) {
-	if context.GetParameter("ClusterControllerConnection-Cluster-Id") != "" {
+	if context.GetParameter("ClusterLogin-Cluster-Id") != "" {
 		config.ClusterLogin.ClusterId =
-			context.GetParameter("ClusterControllerConnection-Cluster-Id")
+			context.GetParameter("ClusterLogin-Cluster-Id")
 	}
-	if context.GetParameter("ClusterControllerConnection-Cluster-Credentials") != "" {
+	if context.GetParameter("ClusterLogin-Credentials") != "" {
 		config.ClusterLogin.ClusterCredentials =
-			context.GetParameter("ClusterControllerConnection-Cluster-Credentials")
+			context.GetParameter("ClusterLogin-Credentials")
 	}
-	if context.GetParameter("ClusterControllerConnection-Cluster-Credentials") != "" {
+	if context.GetParameter("ClusterLogin-Controller") != "" {
 		config.ClusterLogin.ControllerHost =
-			context.GetParameter("ClusterControllerConnection-Cluster-Credentials")
+			context.GetParameter("ClusterLogin-Controller")
 	}
 }
 
@@ -106,7 +113,7 @@ func readNodeConfig(config *SystemConfiguration, context *webapp.RequestContext)
 	if (context.GetParameter("IsPrimaryMaster") != "" || context.GetParameter("IsController") != "") && config.MasterNode == nil {
 		config.MasterNode = &ClusterNodeConfig{
 			IsJoiningNode:  false,
-			NodeName:       "WinKube-" + config.ClusterLogin.ClusterId + "-Master",
+			NodeName:       "WinKube-" + config.ClusterId() + "-Master",
 			NodeType:       Master,
 			NodeMemory:     2048,
 			NodeCPU:        2,
@@ -119,7 +126,7 @@ func readNodeConfig(config *SystemConfiguration, context *webapp.RequestContext)
 		config.MasterNode == nil {
 		config.MasterNode = &ClusterNodeConfig{
 			IsJoiningNode:  true,
-			NodeName:       "WinKube-" + config.ClusterLogin.ClusterId + "-Master",
+			NodeName:       "WinKube-" + config.ClusterId() + "-Master",
 			NodeType:       Master,
 			NodeMemory:     2048,
 			NodeCPU:        2,
@@ -140,7 +147,7 @@ func readNodeConfig(config *SystemConfiguration, context *webapp.RequestContext)
 
 	if context.GetParameter("IsWorker") != "" && config.WorkerNode == nil {
 		config.WorkerNode = &ClusterNodeConfig{
-			NodeName:       "WinKube-" + config.ClusterLogin.ClusterId + "-Worker",
+			NodeName:       "WinKube-" + config.ClusterId() + "-Worker",
 			NodeType:       Worker,
 			NodeMemory:     2048,
 			NodeCPU:        2,
@@ -327,8 +334,27 @@ func Step1Action(context *webapp.RequestContext, writer http.ResponseWriter) *we
 	}
 }
 func Step2Action(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	bean := readConfig(context)
 	data := make(map[string]interface{})
+	bean := readConfig(context)
+	if bean.Values.MasterNode == nil && !bean.Values.IsControllerNode() && !bean.Values.IsWorkerNode() {
+		data["message"] = context.GetMessage("must-configure-anything.message")
+		return &webapp.ActionResponse{
+			NextPage: "step1",
+			Model:    data,
+		}
+	}
+	if bean.Values.IsJoiningMaster() && bean.Values.IsControllerNode() {
+		data["message"] = context.GetMessage("first-master-must-primary.message")
+		bean.Values.MasterNode.IsJoiningNode = false
+	}
+	if bean.Values.IsPrimaryMaster() && !bean.Values.IsControllerNode() {
+		data["message"] = context.GetMessage("follow-master-must-joining.message")
+		bean.Values.MasterNode.IsJoiningNode = true
+	}
+	if bean.Values.IsWorkerNode() && !bean.Values.IsMasterNode() && bean.Values.IsControllerNode() {
+		data["message"] = context.GetMessage("master-created.message")
+		bean.Values.InitMasterNode(true)
+	}
 	data["Config"] = bean
 	data["Clusters"] = clusterOptions(Container().LocalController)
 	data["Interfaces"] = interfaceOptions(Container().Config.NetHostInterface)
@@ -347,7 +373,7 @@ func clusterOptions(clusterManager *LocalController) webapp.Options {
 		option := webapp.Option{
 			Name:     id,
 			Value:    id,
-			Selected: Container().Config.ClusterLogin.ClusterId == id,
+			Selected: Container().Config.ClusterId() == id,
 		}
 		clusterOptions.Entries = append(clusterOptions.Entries, option)
 	}
