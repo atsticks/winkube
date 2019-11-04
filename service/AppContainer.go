@@ -60,20 +60,17 @@ func Log() *log.Logger {
 
 func Start() {
 	appContainer := AppContainer{
-		Validator:         createValidator(),
 		Logger:            logger(),
 		Router:            router(),
+		Validator:         createValidator(),
 		CurrentStatus:     APPSTATE_INITIALIZING,
 		RequiredAppStatus: APPSTATE_RUNNING,
 	}
 	container = &appContainer
 	appContainer.Config = config()
 	appContainer.Router = router()
-	appContainer.NodeManager = createNodeManager()
-	var sp netutil.ServiceProvider = *appContainer.NodeManager
-	appContainer.ServiceProvider = &sp
-	appContainer.ServiceRegistry = serviceRegistry(container.ServiceProvider, WINKUBE_ADTYPE)
-	appContainer.ClusterManager = CreateClusterManager(container.ServiceRegistry)
+	appContainer.ServiceRegistry = netutil.InitServiceRegistry(WINKUBE_ADTYPE)
+	appContainer.LocalController = CreateLocalController(container.ServiceRegistry)
 	appContainer.CurrentStatus = APPSTATE_INITIALIZED
 	appContainer.Logger.Info("WinKube is initialized, continue...")
 }
@@ -83,37 +80,32 @@ func createValidator() *validator.Validate {
 	val.RegisterStructValidation(vagrantNodeValidation, VagrantNode{})
 	val.RegisterStructValidation(vagrantConfig, VagrantConfig{})
 	val.RegisterStructValidation(configValidation, SystemConfiguration{})
-	val.RegisterStructValidation(clusterConfigValidation, ClusterConfig{})
 	return val
 }
 
 func vagrantConfig(sl validator.StructLevel) {
-
+	config := sl.Current().Interface().(VagrantConfig)
+	fmt.Printf("VagrantConfig: %+v", config)
 }
 
 func configValidation(sl validator.StructLevel) {
 	config := sl.Current().Interface().(SystemConfiguration)
-	if config.ClusterConfig.ClusterId != config.ClusterLogin.ClusterId {
-		sl.ReportError(config, "ClusterConfig.clusterId", "ClusterLogin.ClusterId", "Config.ClusterId does not match Config.ClusterLogin.ClusterId", "")
+	if config.ControllerConfig == nil && config.ClusterLogin == nil {
+		sl.ReportError(config, "ControllerConfig", "ClusterLogin", "Either a local cluster config (controllerConnection) or a cluster login must be provided", "")
 	}
-	if !config.ClusterConfig.NetMulticastEnabled && config.MasterController == "" {
+	if !config.NetConfig.NetMulticastEnabled && config.NetConfig.MasterController == "" {
 		sl.ReportError(config, "MasterController", "ClusterConfig.NetMulticastEnabled", "Multicast is disabled, but no MasterController is configured", "")
 	}
 	if config.WorkerNode != nil && !config.WorkerNode.IsJoiningNode {
 		sl.ReportError(config, "WorkerNode", "WorkerNode.IsJoiningNode", "A Worker must be joining always", "")
 	}
-	if config.ClusterConfig.ClusterToken == "" && config.MasterNode != nil && config.MasterNode.IsJoiningNode {
-		sl.ReportError(config, "ClusterConfig.ClusterToken", "MasterNode.IsJoiningNode", "To join a cluster a ClusterToken is required.", "")
-	}
-	if config.ClusterConfig.ClusterToken == "" && config.WorkerNode != nil {
-		sl.ReportError(config, "ClusterConfig.ClusterToken", "WorkerNode", "To join a cluster a ClusterToken is required.", "")
-	}
-}
-
-func clusterConfigValidation(sl validator.StructLevel) {
-	config := sl.Current().Interface().(ClusterConfig)
-	if !config.LocallyManaged && config.Controller == nil {
-		sl.ReportError(config, "LocallyManaged", "ClusterConfig.Controller", "The cluster is not locally managed, but there is no controller configured.", "")
+	if config.ControllerConfig != nil {
+		if config.ControllerConfig.ClusterToken == "" && config.MasterNode != nil && config.MasterNode.IsJoiningNode {
+			sl.ReportError(config, "ClusterConfig.ClusterToken", "MasterNode.IsJoiningNode", "To join a cluster a ClusterToken is required.", "")
+		}
+		if config.ClusterLogin != nil {
+			sl.ReportError(config, "ControllerConfig", "ClusterLogin", "Not both cluster login and local controllerConnection config can be active.", "")
+		}
 	}
 }
 
@@ -133,7 +125,7 @@ type AppContainer struct {
 	ServiceProvider   *netutil.ServiceProvider
 	Router            *mux.Router
 	ServiceRegistry   *netutil.ServiceRegistry
-	ClusterManager    *ClusterManager
+	LocalController   *LocalController
 	NodeManager       *NodeManager
 	CurrentStatus     AppStatus
 	RequiredAppStatus AppStatus
@@ -153,7 +145,7 @@ type DefaultServiceProvider struct {
 }
 
 func config() *SystemConfiguration {
-	return InitAppConfig()
+	return InitConfig()
 }
 func logger() *log.Logger {
 	fmt.Println("Initializing logging...")
@@ -180,8 +172,4 @@ func router() *mux.Router {
 	log.Info("Initializing web application...")
 	r := mux.NewRouter()
 	return r
-}
-
-func serviceRegistry(serviceProvider *netutil.ServiceProvider, adType string) *netutil.ServiceRegistry {
-	return netutil.InitServiceRegistry(adType, serviceProvider)
 }

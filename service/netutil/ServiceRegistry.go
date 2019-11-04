@@ -16,9 +16,9 @@ package netutil
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/koron/go-ssdp"
 	log "github.com/sirupsen/logrus"
-	"github.com/winkube/service/assert"
 	util2 "github.com/winkube/util"
 	"net"
 	"strconv"
@@ -43,15 +43,17 @@ type ServiceRegistry interface {
 
 	// Configures the registry as UPnP service using the given port (default is 1900). This
 	// will restart any running service and clear all currently tracked services.
-	StartUPnP(serviceProvider *ServiceProvider, upnpPort int)
-
-	// Configure the registry to read explicitly from the given service catalogues, if available, instead
-	// of using UPnP/multicast. This will restart any running service and clear all currently tracked services.
-	StartServiceCatalogue(serviceProvider *ServiceProvider, catalogs []string)
+	Start(useMulticast bool, multicastPort int, catalogues []string)
 
 	// This method explicitly stops the registry service. No collected service data will be removed, but no
 	// further updates will happen.
 	Stop()
+
+	// Adds a provider that provides services to be published over UPnP/as remote controller endpoint
+	AddServiceProvider(serviceProvider ServiceProvider)
+
+	// Removes a provider that provided services to be published over UPnP/as remote controller endpoint
+	RemoveServiceProvider(serviceProvider ServiceProvider)
 
 	// Registers a listener for received service events.
 	Listen(listener *ServiceListener)
@@ -61,9 +63,7 @@ type ServiceRegistry interface {
 }
 
 // Interface for providing services to be advertised
-type ServiceProvider interface {
-	GetServices() []Service
-}
+type ServiceProvider func() []Service
 
 // Interface for handling service announcements received via UPnP.
 type ServiceListener interface {
@@ -72,26 +72,36 @@ type ServiceListener interface {
 
 // ServiceRegistry server instance that monitors and publishes services.
 type serviceRegistry struct {
-	adType          string  `validate:"required"`
-	localIp         *net.IP `validate:"required, ip"`
-	aliveInterval   int     `validate:"required,min=5"`
-	advertizers     map[string]*ssdp.Advertiser
-	verbose         bool
-	advertizing     bool
-	monitor         *ssdp.Monitor
-	serviceProvider *ServiceProvider
-	serviceHandlers []*ServiceListener
+	adType           string  `validate:"required"`
+	localIp          *net.IP `validate:"required, ip"`
+	aliveInterval    int     `validate:"required,min=5"`
+	advertizers      map[string]*ssdp.Advertiser
+	verbose          bool
+	advertizing      bool
+	monitor          *ssdp.Monitor
+	serviceProviders []ServiceProvider
+	serviceHandlers  []*ServiceListener
+}
+
+func (this serviceRegistry) Start(useMulticast bool, multicastPort int, masterController []string) {
+	if useMulticast {
+		fmt.Println("Starting Service Registry: Multicast network...")
+		this.startUPnP(multicastPort)
+	} else {
+		fmt.Println("Starting Service Registry: Unicast network...")
+		this.startServiceCatalogue(masterController)
+	}
+	fmt.Println("Service registry started.")
 }
 
 // Creates a new ServiceRegistry server.
-func InitServiceRegistry(advertisementType string, serviceProvider *ServiceProvider) *ServiceRegistry {
+func InitServiceRegistry(advertisementType string) *ServiceRegistry {
 	var serviceRegistry serviceRegistry = serviceRegistry{
-		adType:          advertisementType,
-		serviceProvider: serviceProvider,
-		aliveInterval:   30,
-		verbose:         true,
-		localIp:         GetDefaultIP(),
-		advertizers:     map[string]*ssdp.Advertiser{},
+		adType:        advertisementType,
+		aliveInterval: 30,
+		verbose:       true,
+		localIp:       GetDefaultIP(),
+		advertizers:   map[string]*ssdp.Advertiser{},
 	}
 	// start client
 	serviceRegistry.monitor = &ssdp.Monitor{
@@ -195,12 +205,25 @@ func (this serviceRegistry) onBye(m *ssdp.ByeMessage) {
 func (this serviceRegistry) onSearch(m *ssdp.SearchMessage) {
 	log.Info("Search request ignored: From=", m.From.String(), " Type=", m.Type)
 	if this.adType == m.Type {
-		if this.serviceProvider != nil {
+		if len(this.serviceProviders) > 0 {
 			//services := mc.serviceProvider()
 			if this.verbose {
 				log.Info("[SSDP] TODO Answering UPnP search request for %s", this.adType)
 			}
 		}
+	}
+}
+
+// Adds a listener for handling multicast service announcements.
+func (this serviceRegistry) AddServiceProvider(provider ServiceProvider) {
+	this.serviceProviders = append(this.serviceProviders, provider)
+}
+
+// Removes a listener for handling multicast service announcements.
+func (this serviceRegistry) RemoveServiceProvider(provider ServiceProvider) {
+	index := util2.IndexOf(this.serviceProviders, provider)
+	if index >= 0 {
+		this.serviceProviders = append(this.serviceProviders[:index], this.serviceProviders[index:]...)
 	}
 }
 
@@ -218,23 +241,21 @@ func (this serviceRegistry) Unlisten(listener *ServiceListener) {
 }
 
 // start regularly publishing the services exposed by this instance.
-func (this serviceRegistry) StartServiceCatalogue(serviceProvider *ServiceProvider, catalogs []string) {
+func (this serviceRegistry) startServiceCatalogue(catalogs []string) {
 	panic("Not implemented: StartServiceCatalogue")
 }
 
 // start regularly publishing the services exposed by this instance.
-func (this serviceRegistry) StartUPnP(serviceProvider *ServiceProvider, port int) {
+func (this serviceRegistry) startUPnP(port int) {
 	if port == 0 {
 		port = 1900
 	}
-	assert.AssertNotNil(serviceProvider)
 	if this.advertizing {
 		this.advertizing = false
 	}
 	this.advertizing = true
-
-	if this.serviceProvider != nil {
-		for _, service := range (*this.serviceProvider).GetServices() {
+	for _, provider := range this.serviceProviders {
+		for _, service := range (provider)() {
 			usedAdvertisers := []string{}
 			advertizer, err := ssdp.Advertise(service.ST(), service.USN(), service.Location, service.Server,
 				service.MaxAge)
@@ -269,13 +290,8 @@ func (this serviceRegistry) Stop() {
 
 func (this serviceRegistry) keepAliveLoop() {
 	for this.advertizing {
-		if this.serviceProvider != nil {
-			services := (*this.serviceProvider).GetServices()
-			if this.verbose {
-				log.Debug("[SSDP] sending keep alive for services ", services)
-			}
-
-			for _, service := range services {
+		for _, provider := range this.serviceProviders {
+			for _, service := range (provider)() {
 				usedAdvertisers := []string{}
 				advertizer := this.advertizers[service.USN()]
 				if &advertizer == nil {

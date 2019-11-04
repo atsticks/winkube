@@ -120,7 +120,7 @@ func MainIndexAction(context *webapp.RequestContext, writer http.ResponseWriter)
 }
 
 func StartAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	(*Container().NodeManager).StartNode()
+	(*Container().NodeManager).StartNodes()
 	return &webapp.ActionResponse{
 		NextPage: "index",
 		Model: Info{
@@ -131,7 +131,7 @@ func StartAction(context *webapp.RequestContext, writer http.ResponseWriter) *we
 }
 
 func StopAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	(*Container().NodeManager).StopNode()
+	(*Container().NodeManager).StopNodes()
 	return &webapp.ActionResponse{
 		NextPage: "index",
 		Model: Info{

@@ -19,13 +19,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"github.com/winkube/service/netutil"
 	util2 "github.com/winkube/util"
 	"net"
 	"os"
-	"strconv"
-	"strings"
 )
 
 const WINKUBE_CONFIG_FILE = "winkube-config.json"
@@ -84,7 +81,7 @@ type NetConfig struct {
 type ClusterControllerConnection struct {
 	ClusterId          string `validate:"required"`
 	ClusterCredentials string
-	Host               string `validate:"required"`
+	ControllerHost     string `validate:"required"`
 }
 
 type ClusterConfig struct {
@@ -137,10 +134,10 @@ type SystemConfiguration struct {
 	Id string `validate:"required", json:"id"`
 	LocalHostConfig
 	NetConfig
-	ClusterLogin  *ClusterControllerConnection `json:"clusterLogin"`
-	ClusterConfig *ClusterConfig               `json:"cluster"`
-	MasterNode    *ClusterNodeConfig           `json:"master"`
-	WorkerNode    *ClusterNodeConfig           `json:"worker"`
+	ClusterLogin     *ClusterControllerConnection `json:"clusterLogin"`
+	ControllerConfig *ClusterConfig               `json:"cluster"`
+	MasterNode       *ClusterNodeConfig           `json:"master"`
+	WorkerNode       *ClusterNodeConfig           `json:"worker"`
 }
 
 func (this SystemConfiguration) IsWorkerNode() bool {
@@ -156,60 +153,89 @@ func (this SystemConfiguration) IsJoiningMaster() bool {
 	return this.MasterNode != nil && this.MasterNode.IsJoiningNode
 }
 func (this SystemConfiguration) IsControllerNode() bool {
-	return this.ClusterConfig != nil && this.ClusterConfig.LocallyManaged
+	return this.ControllerConfig != nil
 }
 func (this SystemConfiguration) UndefinedNode() bool {
 	return !this.IsMasterNode() && !this.IsControllerNode() && !this.IsWorkerNode()
 }
 
-func (conf SystemConfiguration) Ready() bool {
-	err := Container().Validator.Struct(Container().Config)
-	if err == nil {
-		return true
-	}
-	return false
+func (conf SystemConfiguration) Validate() error {
+	return Container().Validator.Struct(conf)
 }
 
-func InitAppConfig() *SystemConfiguration {
+func (conf SystemConfiguration) Ready() bool {
+	return conf.Validate() == nil
+}
+
+func InitConfig() *SystemConfiguration {
 	fmt.Println("Initializing config...")
 	nodeId := uuid.New().String()
 	var appConfig SystemConfiguration = SystemConfiguration{
 		Id: nodeId,
-		ClusterLogin: &ClusterControllerConnection{
-			ClusterId:          "MyCluster",
-			ClusterCredentials: "MyCluster",
-			Controller:         createLocalControllerNode("MyCluster", nodeId),
-		},
-		ClusterConfig: &ClusterConfig{
-			ClusterControllerConnection: ClusterControllerConnection{
-				ClusterId:          "MyCluster",
-				ClusterCredentials: "MyCluster",
-			},
-			ClusterPodCIDR:       "172.16.0.0/16",
-			ClusterControlPlane:  hostname(),
-			ClusterMasterApiPort: 6443,
-			ClusterServiceDomain: "cluster.local",
-			ClusterVMNet:         NAT,
-			ClusterNetCIDR:       "192.168.99.0/24",
-			NetConfig: NetConfig{
-				NetMulticastEnabled: true,
-				NetUPnPPort:         1900,
-			},
+		LocalHostConfig: LocalHostConfig{
+			NetHostInterface: netutil.GetDefaultInterface().Name,
+			NetHostIP:        netutil.GetDefaultIP().String(),
 		},
 		NetConfig: NetConfig{
 			NetMulticastEnabled: true,
 			NetUPnPPort:         1900,
 		},
-		LocalHostConfig: LocalHostConfig{
-			NetHostInterface: netutil.GetDefaultInterface().Name,
-			NetHostIP:        netutil.GetDefaultIP().String(),
-		},
 	}
-	appConfig.readConfig()
+	appConfig.ReadConfig()
 	return &appConfig
 }
 
-func (config *SystemConfiguration) readConfig() *Action {
+func (config *SystemConfiguration) InitMasterNode(primary bool) *ClusterNodeConfig {
+	if config.MasterNode == nil {
+		config.MasterNode = &ClusterNodeConfig{
+			NodeName:       "Master",
+			NodeType:       Master,
+			NodeIP:         "",
+			NodeMemory:     2048,
+			NodeCPU:        2,
+			IsJoiningNode:  !primary,
+			NodeBox:        "ubuntu/xenial64",
+			NodeBoxVersion: "20180831.0.0",
+		}
+	}
+	return config.MasterNode
+}
+
+func (config *SystemConfiguration) InitWorkerNode() *ClusterNodeConfig {
+	if config.WorkerNode == nil {
+		config.WorkerNode = &ClusterNodeConfig{
+			NodeName:       "Worker",
+			NodeType:       Worker,
+			NodeIP:         "",
+			NodeMemory:     2048,
+			NodeCPU:        2,
+			IsJoiningNode:  true,
+			NodeBox:        "ubuntu/xenial64",
+			NodeBoxVersion: "20180831.0.0",
+		}
+	}
+	return config.WorkerNode
+}
+
+func (config *SystemConfiguration) InitControllerConfig() *ClusterConfig {
+	if config.ControllerConfig == nil {
+		config.ControllerConfig = &ClusterConfig{
+			ClusterId:            "MyCluster",
+			ClusterCredentials:   "MyCluster",
+			ClusterPodCIDR:       "172.16.0.0/16",
+			ClusterServiceDomain: "cluster.local",
+			ClusterVMNet:         NAT,
+			ClusterControlPlane:  hostname(),
+			ClusterMasters:       "",
+			ClusterMasterApiPort: 6443,
+			ClusterNetCIDR:       "192.168.99.0/24",
+			ClusterToken:         "",
+		}
+	}
+	return config.ControllerConfig
+}
+
+func (config *SystemConfiguration) ReadConfig() *Action {
 	actionManager := *GetActionManager()
 	action := actionManager.StartAction("Read config from " + WINKUBE_CONFIG_FILE)
 	f, err := os.Open(WINKUBE_CONFIG_FILE)
@@ -236,14 +262,14 @@ func (config *SystemConfiguration) readConfig() *Action {
 	}
 	return actionManager.CompleteWithMessage(action.Id, "Config successfully read: \n\n"+fmt.Sprintf("Id: %v\nNet:%+v\nHost:%+v\nCluster:%+v\nMaster:%+v\nWorker:%+v\nNodes:%+v\n",
 		config.Id,
-		config.NetConfig,
 		config.LocalHostConfig,
-		config.ClusterConfig,
+		config.NetConfig,
+		config.ControllerConfig,
 		config.MasterNode,
 		config.WorkerNode))
 }
 
-func (config *SystemConfiguration) writeConfig() *Action {
+func (config *SystemConfiguration) WriteConfig() *Action {
 	actionManager := *GetActionManager()
 	action := actionManager.StartAction("Write config to " + WINKUBE_CONFIG_FILE)
 	f, err := os.Create(WINKUBE_CONFIG_FILE)
@@ -280,53 +306,61 @@ func (conf SystemConfiguration) GetHostIp() string {
 	return ""
 }
 
-func eval(props util2.Properties, key string, defaultValue string) string {
-	val := props[key]
-	if val == "" {
-		return defaultValue
+func (conf SystemConfiguration) ClusterId() string {
+	if conf.IsControllerNode() {
+		return conf.ControllerConfig.ClusterId
+	} else {
+		return conf.ClusterLogin.ClusterId
 	}
-	return val
 }
-func evalBool(props util2.Properties, key string, defaultValue bool) bool {
-	val := props[key]
-	if val == "" {
-		return defaultValue
-	}
-	return strings.ToLower(strings.TrimSpace(val)) == "true"
-}
-func evalInt(props util2.Properties, key string, defaultValue int) int {
-	val := props[key]
-	if val == "" {
-		return defaultValue
-	}
-	r, err := strconv.Atoi(strings.TrimSpace(val))
-	if err != nil {
-		logrus.Info("Invalid config entry for " + key + " ; " + val)
-		return defaultValue
-	}
-	return r
-}
-func evalNodeNetType(props util2.Properties, key string, defaultValue VMNetType) VMNetType {
-	val := props[key]
-	if val == "" {
-		return defaultValue
-	}
-	for _, nt := range NodeNetType_Values() {
-		if nt.String() == val {
-			return nt
-		}
-	}
-	return defaultValue
-}
-func evalNodeType(props util2.Properties, key string, defaultValue NodeType) NodeType {
-	val := props[key]
-	if val == "" {
-		return defaultValue
-	}
-	for _, nt := range NodeType_Values() {
-		if nt.String() == val {
-			return nt
-		}
-	}
-	return defaultValue
-}
+
+//func eval(props util2.Properties, key string, defaultValue string) string {
+//	val := props[key]
+//	if val == "" {
+//		return defaultValue
+//	}
+//	return val
+//}
+//func evalBool(props util2.Properties, key string, defaultValue bool) bool {
+//	val := props[key]
+//	if val == "" {
+//		return defaultValue
+//	}
+//	return strings.ToLower(strings.TrimSpace(val)) == "true"
+//}
+//func evalInt(props util2.Properties, key string, defaultValue int) int {
+//	val := props[key]
+//	if val == "" {
+//		return defaultValue
+//	}
+//	r, err := strconv.Atoi(strings.TrimSpace(val))
+//	if err != nil {
+//		logrus.Info("Invalid config entry for " + key + " ; " + val)
+//		return defaultValue
+//	}
+//	return r
+//}
+//func evalNodeNetType(props util2.Properties, key string, defaultValue VMNetType) VMNetType {
+//	val := props[key]
+//	if val == "" {
+//		return defaultValue
+//	}
+//	for _, nt := range NodeNetType_Values() {
+//		if nt.String() == val {
+//			return nt
+//		}
+//	}
+//	return defaultValue
+//}
+//func evalNodeType(props util2.Properties, key string, defaultValue NodeType) NodeType {
+//	val := props[key]
+//	if val == "" {
+//		return defaultValue
+//	}
+//	for _, nt := range NodeType_Values() {
+//		if nt.String() == val {
+//			return nt
+//		}
+//	}
+//	return defaultValue
+//}

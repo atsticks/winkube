@@ -40,7 +40,7 @@ func ClusterWebApplication(router *mux.Router) *webapp.WebApplication {
 
 func NodesAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	// Collect messages
-	var nodes []*LocalNodeConfig
+	var nodes []*ClusterNodeConfig
 	if Container().Config.MasterNode != nil {
 		nodes = append(nodes, Container().Config.MasterNode)
 	}
@@ -75,7 +75,7 @@ func ConfigAction(context *webapp.RequestContext, writer http.ResponseWriter) *w
 //	config := Container().Config
 //	switch(config.NodeType){
 //	case Master:
-//		cm := *Container().ClusterManager
+//		cm := *Container().LocalController
 //		ip := (*cm.GetClusterControl()).GetNewNodeIp()
 //		writer.Write([]byte(ip))
 //	default:
@@ -92,7 +92,7 @@ func ConfigAction(context *webapp.RequestContext, writer http.ResponseWriter) *w
 //	config := Container().Config
 //	switch(config.NodeType){
 //	case Master:
-//		cm := *Container().ClusterManager
+//		cm := *Container().LocalController
 //		ip := (*cm.GetClusterControl()).GetNewNodeIp()
 //		writer.Write([]byte(ip))
 //	default:

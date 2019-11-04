@@ -39,8 +39,10 @@ func startup() {
 
 func manageState() {
 	for {
+
 		if service.Container().RequiredAppStatus != service.Container().CurrentStatus {
 			var actionManager service.ActionManager = *service.GetActionManager()
+			config := service.Container().Config
 			var action *service.Action
 			switch service.Container().RequiredAppStatus {
 			case service.APPSTATE_SETUP:
@@ -56,20 +58,22 @@ func manageState() {
 				action.CompleteWithMessage("New Mode applied: SETUP")
 			case service.APPSTATE_RUNNING:
 				action = actionManager.StartAction("Trying to switch to RUNNING Mode")
-				if service.Container().Config.Ready() {
+				if config.Ready() {
 					service.Container().CurrentStatus = service.APPSTATE_STARTING
-					action.LogActionLn("Starting services...")
-					log.Info("Starting services...")
-					if service.Container().Config.NetMulticastEnabled {
-						action.LogActionLn("Starting UPnP multicast service registry...")
-						log.Info("Starting UPnP multicast service registry...")
-						(*service.Container().ServiceRegistry).StartUPnP(service.Container().ServiceProvider, service.Container().Config.NetUPnPPort)
-					} else {
-						log.Info("Starting catalogue service registry...")
-						action.LogActionLn("Starting catalogue service registr...")
-						(*service.Container().ServiceRegistry).StartServiceCatalogue(service.Container().ServiceProvider, strings.Split(service.Container().Config.MasterController, ","))
-					}
-					log.Info("WinKube running.")
+					action.LogActionLn("Starting service registry...")
+					(*service.Container().ServiceRegistry).Start(config.NetConfig.NetMulticastEnabled, config.NetConfig.NetUPnPPort, strings.Split(config.NetConfig.MasterController, ","))
+					action.LogActionLn("Starting cluster controller...")
+					(*service.Container().LocalController).Start(config)
+					action.LogActionLn("Resetting nodes...")
+					(*service.Container().NodeManager).DestroyNodes()
+					action.LogActionLn("Resetting nodes...")
+					(*service.Container().NodeManager).ConfigureNodes(*config, (*service.Container().LocalController).GetClusterConfig(), true)
+					log.Info("Starting nodes...")
+					action.LogActionLn("Starting nodes...")
+					(*service.Container().NodeManager).StartNodes()
+					log.Info("Registering services...")
+					action.LogActionLn("Registering services...")
+					(*service.Container().ServiceRegistry).AddServiceProvider((*service.Container().NodeManager).GetServices)
 					service.Container().CurrentStatus = service.APPSTATE_RUNNING
 					action.CompleteWithMessage("New Mode applied: RUNNING")
 				} else {

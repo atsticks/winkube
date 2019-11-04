@@ -24,6 +24,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -37,38 +38,57 @@ const (
 )
 
 type Node struct {
-	id               string              `json:"id"`
-	ClusterId        string              `json:"clusterId"`
-	NodeType         NodeType            `json:"nodeType"`
-	Name             string              `json:"name"`
-	Host             string              `json:"host"`
-	timestamp        time.Time           `json:"timestamp"`
-	ServiceEndpoints map[Endpoint]string `json:"endpoints"`
+	Id        string    `json:"id"`
+	ClusterId string    `json:"clusterId"`
+	NodeType  NodeType  `json:"nodeType"`
+	Name      string    `json:"name"`
+	Host      string    `json:"host"`
+	Timestamp time.Time `json:"timestamp"`
+	Endpoint  string    `json:"endpoint"`
 }
 
 type Cluster struct {
 	ClusterConfig *ClusterConfig `json:"config"`
-	Controller    *Node          `json:"controller"`
+	Controller    *Node          `json:"controllerConnection"`
 	Masters       []Node         `json:"masters"`
 	Workers       []Node         `json:"workers"`
 }
 
-func NodeFromService(s netutil.Service) *Node {
-	return &Node{
-		id:               s.Id,
-		Host:             s.Host(),
-		timestamp:        time.Now(),
-		NodeType:         getNodeType(s),
-		ClusterId:        getClusterId(s),
-		ServiceEndpoints: map[Endpoint]string{getServiceEndpoint(s): s.Location},
+func (this Cluster) addOrUpdateMaster(node Node) {
+	index := util.IndexOf(this.Masters, node)
+	if index < 0 {
+		this.Masters = append(this.Masters, node)
+	} else {
+		this.Masters[index] = node
+	}
+}
+func (this Cluster) addOrUpdateWorker(node Node) {
+	index := util.IndexOf(this.Workers, node)
+	if index < 0 {
+		this.Workers = append(this.Workers, node)
+	} else {
+		this.Workers[index] = node
 	}
 }
 
-type ClusterController interface {
+func (this Cluster) removeNode(node *Node) {
+	for index, n := range this.Workers {
+		if n.Id == node.Id {
+			this.Workers = remove(this.Workers, index)
+		}
+	}
+	for index, n := range this.Masters {
+		if n.Id == node.Id {
+			this.Masters = remove(this.Masters, index)
+		}
+	}
+}
+
+type ControllerDelegate interface {
 	Start() error
 	Stop() error
 	GetClusterId() string
-	GetClusterConfig() *ClusterConfig
+	GetClusterConfig() ClusterConfig
 	Exec(command string) string
 	ReserveNodeIP(master bool) string
 	ReserveInternalIP(master bool) string
@@ -76,12 +96,12 @@ type ClusterController interface {
 	ReleaseInternalIP(string)
 }
 
-type ClusterManager interface {
+type LocalController interface {
 	IsRunning() bool
-	StartLocalManager(clusterConfig *ClusterConfig, nodeId string) error
-	StartRemoteManager(clusterConfig *ClusterConfig) error
+	Start(config *SystemConfiguration) error
 	Stop() error
-	GetClusterConfig() *ClusterConfig
+	GetClusterId() string
+	GetClusterConfig() ClusterConfig
 	GetState() string
 	ReserveNodeIP(master bool) string
 	ReserveInternalIP(master bool) string
@@ -90,100 +110,135 @@ type ClusterManager interface {
 	DrainNode(node Node)
 	CordonNode(node Node)
 
-	GetKnownClusters() []*Cluster
+	GetKnownClusters() []Cluster
 	GetClusterById(clusterId string) *Cluster
 	UpdateCluster(clusterId string) *Cluster
 }
 
-func CreateClusterManager(serviceRegistry *netutil.ServiceRegistry) *ClusterManager {
-	var cm = clusterManager{
-		clusters:        make(map[string]*Cluster),
+func CreateLocalController(serviceRegistry *netutil.ServiceRegistry) *LocalController {
+	var cm = localController{
+		knownClusters:   make(map[string]*Cluster),
 		serviceRegistry: serviceRegistry,
 	}
-	var CM ClusterManager = &cm
+	var CM LocalController = &cm
 	return &CM
 }
 
 func createLocalControllerNode(clusterId string, nodeId string) *Node {
 	cn := Node{
-		id:               nodeId,
-		ClusterId:        clusterId,
-		NodeType:         Controller,
-		Host:             hostname(),
-		timestamp:        time.Now(),
-		ServiceEndpoints: map[Endpoint]string{ControllerEndpoint: "http://" + hostname() + ":9999/cluster"},
+		Id:        nodeId,
+		ClusterId: clusterId,
+		NodeType:  Controller,
+		Host:      hostname(),
+		Timestamp: time.Now(),
+		Endpoint:  "http://" + hostname() + ":9999/cluster",
 	}
 	return &cn
 }
 
-//func createRemoteControllerNode(clusterId string, controller *Node) *ClusterManager {
-//	var CM ClusterManager
-//	// Load config from remote controller
-//	clusterConfig, err := loadRemoteConfig(clusterId, controller)
-//	var cm = clusterManager{
-//		clusters:        make(map[string]*Cluster),
-//		serviceRegistry: serviceRegistry,
-//	}
-//	var ctl ClusterController = remoteClusterController{
-//		controller: controller,
-//		config:     clusterConfig,
-//		clusterId:  clusterConfig.ClusterId,
-//	}
-//	cm.clusterController = &ctl
-//		err = Container().Validator.Struct(cm)
-//	if util.CheckAndLogError("Failed to start cluster manager.", err) {
-//		CM = &cm
-//		return &CM
-//	} else {
-//		panic(err)
-//	}
-//}
-
 // The cluster manager is the proxy management component which connects this machine with the overall
-// controller. If the controller is locally, the this component also manages the controller
+// controllerConnection. If the controllerConnection is locally, the this component also manages the controllerConnection
 // api which is used by other nodes.
-type clusterManager struct {
-	serviceRegistry   *netutil.ServiceRegistry `validate:"required"`
-	clusterController *ClusterController       `validate:"required"`
-	clusters          map[string]*Cluster
+type localController struct {
+	serviceRegistry    *netutil.ServiceRegistry `validate:"required"`
+	controllerDelegate *ControllerDelegate      `validate:"required"`
+	clusterId          string                   `validate:"required"`
+	knownClusters      map[string]*Cluster
 }
 
-func (c clusterManager) isRunning() bool {
-	return c.clusterController != nil
-}
-
-func (this *clusterManager) StartLocalManager(config *ClusterConfig, nodedId string) error {
-	clusterState := &Cluster{
-		ClusterConfig: config,
-		Controller:    createLocalControllerNode(config.ClusterId, nodedId),
-		Masters:       []Node{},
-		Workers:       []Node{},
+func (c *localController) Start(config *SystemConfiguration) error {
+	Log().Info("Starting local controller...")
+	if config.IsControllerNode() {
+		return c.startLocal(*config.ControllerConfig, config.Id)
+	} else {
+		return c.startRemote(*config.ClusterLogin)
 	}
-	clController := clusterController{
+}
+
+func (c *localController) ReserveNodeIP(master bool) string {
+	c.ensureRunning()
+	return (*c.controllerDelegate).ReserveNodeIP(master)
+}
+
+func (c *localController) ReserveInternalIP(master bool) string {
+	c.ensureRunning()
+	return (*c.controllerDelegate).ReserveInternalIP(master)
+}
+
+func (c *localController) ReleaseNodeIP(ip string) {
+	c.ensureRunning()
+	(*c.controllerDelegate).ReleaseNodeIP(ip)
+}
+
+func (c *localController) ReleaseInternalIP(ip string) {
+	c.ensureRunning()
+	(*c.controllerDelegate).ReleaseInternalIP(ip)
+}
+
+// Checks if this component is running, panics otherwise
+func (c *localController) ensureRunning() {
+	if !c.IsRunning() {
+		panic("Local controller is not running")
+	}
+}
+
+func (c *localController) DrainNode(node Node) {
+	panic("implement me")
+}
+
+func (c *localController) CordonNode(node Node) {
+	panic("implement me")
+}
+
+func (c *localController) IsRunning() bool {
+	return c.controllerDelegate != nil
+}
+
+func (c *localController) GetState() string {
+	return (*c.controllerDelegate).Exec("kubectl get nodes")
+}
+
+func (this *localController) startLocal(config ClusterConfig, nodedId string) error {
+	Log().Info("Starting local cluster controller for cluster: " + config.ClusterId)
+	this.clusterId = config.ClusterId
+	clusterState := this.knownClusters[config.ClusterId]
+	if clusterState == nil {
+		clusterState = &Cluster{
+			ClusterConfig: &config,
+			Controller:    createLocalControllerNode(config.ClusterId, nodedId),
+			Masters:       []Node{},
+			Workers:       []Node{},
+		}
+		this.knownClusters[config.ClusterId] = clusterState
+	} else {
+		if clusterState.Controller.Host != hostname() {
+			panic(fmt.Sprint("Cluster is remotedly managed. Cannot start a local controllerConnection for &v", config.ClusterId))
+		}
+	}
+	clController := localControllerDelegate{
 		clusterState:   clusterState,
 		clusterNetCIDR: netutil.CreateCIDR(config.ClusterNetCIDR),
 	}
-	var cctl ClusterController = clController
-	this.clusterController = &cctl
-	this.clusters[config.ClusterId] = clusterState
+	var cctl ControllerDelegate = &clController
+	this.controllerDelegate = &cctl
 	err := Container().Validator.Struct(this)
-	if !util.CheckAndLogError("Failed to start cluster manager.", err) {
+	if !util.CheckAndLogError("Failed to start local controllerConnection.", err) {
 		panic(err)
 	}
 	return clController.Start()
 }
-func (this *clusterManager) StartRemoteManager(clusterConfig *ClusterConfig) error {
-	clusterConfig, err := loadRemoteConfig(clusterConfig.ClusterId, clusterConfig.Controller)
-	if !util.CheckAndLogError("Failed to start cluster manager.", err) {
+func (this *localController) startRemote(clusterConnection ClusterControllerConnection) error {
+	Log().Info("Connecting to remote cluster: " + clusterConnection.ClusterId + "...")
+	clusterConfig, err := loadRemoteConfig(clusterConnection)
+	if !util.CheckAndLogError("Failed to start local controllerConnection.", err) {
 		return err
 	}
-	clController := remoteClusterController{
-		controller: clusterConfig.Controller,
-		config:     clusterConfig,
-		clusterId:  clusterConfig.ClusterId,
+	clController := remoteControllerDelegate{
+		controllerConnection: clusterConnection,
+		config:               clusterConfig,
 	}
-	var cctl ClusterController = clController
-	this.clusterController = &cctl
+	var cctl ControllerDelegate = clController
+	this.controllerDelegate = &cctl
 	err = Container().Validator.Struct(this)
 	if !util.CheckAndLogError("Failed to start cluster manager.", err) {
 		panic(err)
@@ -191,80 +246,62 @@ func (this *clusterManager) StartRemoteManager(clusterConfig *ClusterConfig) err
 	return clController.Start()
 }
 
-func (this *clusterManager) Stop() error {
-	if this.clusterController != nil {
-		this.clusterController.Stop()
-		this.clusterController = nil
+func (this *localController) Stop() error {
+	if this.controllerDelegate != nil {
+		(*this.controllerDelegate).Stop()
+		this.controllerDelegate = nil
 	}
 	return nil
 }
 
-func (this *clusterManager) GetClusterById(clusterId string) *Cluster {
-	return this.clusters[clusterId]
+func (this *localController) GetClusterById(clusterId string) *Cluster {
+	return this.knownClusters[clusterId]
 }
 
-func (this *clusterManager) UpdateCluster(clusterId string) *Cluster {
-	state := this.clusters[clusterId]
+func (this *localController) UpdateCluster(clusterId string) *Cluster {
+	state := this.knownClusters[clusterId]
 	if state != nil {
-		if state.ClusterConfig.LocallyManaged {
-			return state
-		} else {
-			// TODO Update Cluster from remote controller
+		if this.clusterId != state.ClusterConfig.ClusterId {
+			// TODO Update Cluster from remote controllerConnection
 		}
 	}
 	return state
 }
 
-func (this *clusterManager) GetClusterId() string {
-	if this.isRunning() {
-		return (*this.clusterController).GetClusterId()
-	}
-	return ""
+func (this *localController) GetClusterId() string {
+	return this.clusterId
 }
-func (this *clusterManager) GetClusterConfig() *ClusterConfig {
-	if this.isRunning() {
-		return (*this.clusterController).GetClusterConfig()
+func (this *localController) GetClusterConfig() ClusterConfig {
+	if this.IsRunning() {
+		return (*this.controllerDelegate).GetClusterConfig()
 	}
-	return nil
-}
-func (this *clusterManager) IsController() bool {
-	return this.GetClusterConfig().LocallyManaged
+	panic("Not running")
 }
 
-func (this *clusterManager) GetCluster() *Cluster {
-	state := this.GetCluster(this.GetClusterId())
-	if state == nil {
-		state = &Cluster{
-			ClusterConfig: this.clusterConfig,
-			Controller:    nil,
-			Masters:       []Node{},
-			Workers:       []Node{},
-		}
-		this.clusters[this.GetClusterId()] = state
-	}
-	return state
+func (this *localController) GetCluster() *Cluster {
+	return this.GetClusterById(this.GetClusterId())
 }
 
-func (this *clusterManager) GetKnownClusters() []Cluster {
+func (this *localController) GetKnownClusters() []Cluster {
 	clusters := []Cluster{}
-	for _, v := range this.clusters {
-		clusters = append(clusters, v)
+	for _, v := range this.knownClusters {
+		clusters = append(clusters, *v)
 	}
 	return clusters
 }
 
-func (this *clusterManager) GetClusterByName(clusterName string) *Cluster {
-	return this.clusters[clusterName]
+func (this *localController) GetClusterByName(clusterName string) *Cluster {
+	return this.knownClusters[clusterName]
 }
 
-func (this *clusterManager) UpdateAndGetClusterByName(clusterName string) *Cluster {
+func (this *localController) UpdateAndGetClusterByName(clusterName string) *Cluster {
 	// TODO perform update
 	return this.GetClusterByName(clusterName)
 }
 
-func (this *clusterManager) updateService(service netutil.Service) error {
+func (this *localController) updateService(service netutil.Service) error {
 	clusterId := getClusterId(service)
-	cluster, found := this.clusters[clusterId]
+	cluster, found := this.knownClusters[clusterId]
 	if !found {
 		return errors.New("Cluster not found: " + clusterId)
 	}
@@ -273,60 +310,60 @@ func (this *clusterManager) updateService(service netutil.Service) error {
 }
 
 // A remote ClusterControlPane is an passive management component that delegates cluster management to the
-// current active cluster controller, which resideds on another host. It caches and regularly updates
-// current cloud configuration from its master controller.
-type remoteClusterController struct {
-	clusterId  string         `validate:"required"`
-	config     *ClusterConfig // will be loaded from the controller...
-	controller *Node          `validate:"required"`
+// current active cluster controllerConnection, which resideds on another host. It caches and regularly updates
+// current cloud configuration from its master controllerConnection.
+type remoteControllerDelegate struct {
+	controllerConnection ClusterControllerConnection `validate:"required"`
+	config               *ClusterConfig              // will be loaded from the controllerConnection...
 }
 
-func (r remoteClusterController) Start() error {
-	config, err := loadRemoteConfig(r.clusterId, r.controller)
+func (r remoteControllerDelegate) Start() error {
+	config, err := loadRemoteConfig(r.controllerConnection)
 	if err == nil {
 		r.config = config
 	}
-
 	return err
 }
 
-func (c remoteClusterController) Exec(command string) string {
-	// TODO implement remote master exec...
-	fmt.Println("TODO implement remote master exec: " + command)
-	return "Not implemented: " + command
+func (r remoteControllerDelegate) Exec(command string) string {
+	data, err := performGet("http://" + r.controllerConnection.ControllerHost + ":9999/cluster/exec&cmd=" + command)
+	if err != nil {
+		Log().Error("Exec", err)
+		return ""
+	}
+	return string(data)
 }
 
-func (r remoteClusterController) Stop() error {
+func (r remoteControllerDelegate) Stop() error {
 	// nothing to do
 	return nil
 }
 
-func (r remoteClusterController) GetClusterId() string {
-	return r.clusterId
-}
-
-func (r remoteClusterController) getConfig() *ClusterConfig {
-	if r.config == nil {
-		// TODO load config from controller
+func (r remoteControllerDelegate) GetClusterId() string {
+	if r.config != nil {
+		return r.config.ClusterId
 	}
-	return r.config
+	return ""
 }
 
-func (r remoteClusterController) IsLocallyManaged() bool {
-	return r.getConfig().LocallyManaged
+func (r remoteControllerDelegate) getConfig() ClusterConfig {
+	if r.config == nil {
+		// TODO load config from controllerConnection
+	}
+	return *r.config
 }
 
-func (r remoteClusterController) GetClusterConfig() *ClusterConfig {
+func (r remoteControllerDelegate) GetClusterConfig() ClusterConfig {
 	return r.getConfig()
 }
 
-func (r remoteClusterController) GetState() string {
-	return r.masterRemoteExec("kubectl get nodex")
+func (r remoteControllerDelegate) GetState() string {
+	return r.masterRemoteExec("kubectl get nodes")
 }
 
-func (r remoteClusterController) GetMasters() []Node {
-	// Call controller to get master list
-	data, err := performGet(r.controller.ServiceEndpoints[ControllerEndpoint] + "/masters")
+func (r remoteControllerDelegate) GetMasters() []Node {
+	// Call controllerConnection to get master list
+	data, err := performGet("http://" + r.controllerConnection.ControllerHost + ":9999/cluster/masters")
 	if err != nil {
 		Log().Error("GetMasters", err)
 		return []Node{}
@@ -340,9 +377,9 @@ func (r remoteClusterController) GetMasters() []Node {
 	return nodes
 }
 
-func (r remoteClusterController) GetWorkers() []Node {
-	// Call controller to get worker list
-	data, err := performGet(r.controller.ServiceEndpoints[ControllerEndpoint] + "/workers")
+func (r remoteControllerDelegate) GetWorkers() []Node {
+	// Call controllerConnection to get worker list
+	data, err := performGet("http://" + r.controllerConnection.ControllerHost + ":9999/cluster/workers")
 	if err != nil {
 		Log().Error("GetWorkers", err)
 		return []Node{}
@@ -356,9 +393,9 @@ func (r remoteClusterController) GetWorkers() []Node {
 	return nodes
 }
 
-func (r remoteClusterController) ReserveNodeIP(master bool) string {
-	// Call controller to get ip
-	data, err := performGet(r.controller.ServiceEndpoints[ControllerEndpoint] + "/nodeip")
+func (r remoteControllerDelegate) ReserveNodeIP(master bool) string {
+	// Call controllerConnection to get ip
+	data, err := performGet("http://" + r.controllerConnection.ControllerHost + ":9999/cluster/nodeip")
 	if err != nil {
 		Log().Error("ReserveNodeIP", err)
 		return ""
@@ -366,9 +403,9 @@ func (r remoteClusterController) ReserveNodeIP(master bool) string {
 	return string(data)
 }
 
-func (r remoteClusterController) ReserveInternalIP(master bool) string {
-	// Call controller to get internal ip
-	data, err := performGet(r.controller.ServiceEndpoints[ControllerEndpoint] + "/internalip")
+func (r remoteControllerDelegate) ReserveInternalIP(master bool) string {
+	// Call controllerConnection to get internal ip
+	data, err := performGet("http://" + r.controllerConnection.ControllerHost + ":9999/cluster/internalip?master=" + strconv.FormatBool(master))
 	if err != nil {
 		Log().Error("ReserveInternalIP", err)
 		return ""
@@ -376,168 +413,130 @@ func (r remoteClusterController) ReserveInternalIP(master bool) string {
 	return string(data)
 }
 
-func (r remoteClusterController) ReleaseNodeIP(string) {
-	// Call controller to release ip
-	_, err := performDelete(r.controller.ServiceEndpoints[ControllerEndpoint] + "/nodeip")
+func (r remoteControllerDelegate) ReleaseNodeIP(ip string) {
+	// Call controllerConnection to release ip
+	_, err := performDelete("http://" + r.controllerConnection.ControllerHost + ":9999/cluster/nodeip?ip=" + ip)
 	if err != nil {
 		Log().Error("ReleaseNodeIP", err)
 	}
 }
 
-func (r remoteClusterController) ReleaseInternalIP(string) {
-	// Call controller to relöease internal ip
-	_, err := performDelete(r.controller.ServiceEndpoints[ControllerEndpoint] + "/internalip")
+func (r remoteControllerDelegate) ReleaseInternalIP(ip string) {
+	// Call controllerConnection to relöease internal ip
+	_, err := performDelete("http://" + r.controllerConnection.ControllerHost + ":9999/cluster/internalip?ip=" + ip)
 	if err != nil {
 		Log().Error("ReleaseInternalIP", err)
 	}
 }
 
-func (r remoteClusterController) DrainNode(node Node) {
+func (r remoteControllerDelegate) DrainNode(node Node) {
 	r.masterRemoteExec("kubectl drain " + node.Name)
 }
 
-func (r remoteClusterController) CordonNode(node Node) {
+func (r remoteControllerDelegate) CordonNode(node Node) {
 	r.masterRemoteExec("kubectl cordon " + node.Name)
 }
 
-func (r remoteClusterController) masterRemoteExec(command string) string {
-	// Call controller to get internal ip
-	data, err := performGet(r.controller.ServiceEndpoints[ControllerEndpoint] + "/exec?cmd=" + command)
+func (r remoteControllerDelegate) masterRemoteExec(command string) string {
+	// Call controllerConnection to get internal ip
+	data, err := performGet("http://" + r.controllerConnection.ControllerHost + ":9999/cluster/exec?cmd=" + command)
 	if err != nil {
-		Log().Error("Controller failed: EXEC "+command, err)
+		Log().Error("masterRemoteExec", err)
 		return ""
 	}
 	return string(data)
 }
 
-func performGet(uri string) ([]byte, error) {
-	resp, err := http.Get(uri)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	data, readErr := ioutil.ReadAll(resp.Body)
-	if readErr != nil {
-		return nil, readErr
-	}
-	return data, nil
-}
-
-func performDelete(uri string) ([]byte, error) {
-	req, err := http.NewRequest("DELETE", uri, nil)
-	if util.CheckAndLogError("Failed to create delkete request", err) {
-		resp, qerr := http.DefaultClient.Do(req)
-		if qerr != nil {
-			return nil, qerr
-		}
-		return ioutil.ReadAll(resp.Body)
-	}
-	return nil, err
-}
-
-func loadRemoteConfig(id string, controller *Node) (*ClusterConfig, error) {
-	data, err := performGet(controller.ServiceEndpoints[ControllerEndpoint] + "/config")
-	if err != nil {
-		return nil, err
-	}
-	config := &ClusterConfig{}
-	err = json.Unmarshal(data, config)
-	if err != nil {
-		return nil, err
-	}
-	return config, nil
-}
-
 // A ClusterControlPane is an active management component that manages a cluster. It trackes the
-// nodes (masters and workers) in the clusters, the IP addresses used for bridge nodes (VMNetCIDR) as
+// nodes (masters and workers) in the knownClusters, the IP addresses used for bridge nodes (VMNetCIDR) as
 // well as for internal NAT addressing (internalNetCIDR) and finally the credentials for joining
 // the cluster.
-type clusterController struct {
+type localControllerDelegate struct {
 	clusterState   *Cluster `validate:"required"`
 	clusterNATCIDR *netutil.CIDR
 	clusterNetCIDR *netutil.CIDR
 	server         *http.Server
 }
 
-func (c clusterController) Start() error {
+func (r *localControllerDelegate) GetState() string {
+	return r.Exec("kubectl get nodes")
+}
+
+func (c *localControllerDelegate) Start() error {
 	// start the cloud server
-	Log().Info("Initializing controller api...")
+	Log().Info("Initializing controllerConnection api...")
 	router := mux.NewRouter()
-	clusterApiApp := createClusterManagerWebApp(&c)
+	clusterApiApp := createClusterManagerWebApp(c)
 	router.PathPrefix("/cluster").HandlerFunc(clusterApiApp.HandleRequest)
 	c.server = &http.Server{Addr: "0.0.0.0:9999", Handler: router}
 	go c.listenHttp()
 	return nil
 }
 
-func (c clusterController) listenHttp() {
+func (c *localControllerDelegate) listenHttp() {
 	c.server.ListenAndServe()
 }
 
-func (c clusterController) Stop() error {
+func (c *localControllerDelegate) Stop() error {
 	if c.server != nil {
 		return c.server.Close()
 	}
 	return nil
 }
 
-func (c clusterController) GetClusterId() string {
+func (c *localControllerDelegate) GetClusterId() string {
 	return c.clusterState.ClusterConfig.ClusterId
 }
 
-func (c clusterController) IsLocallyManaged() bool {
-	return c.clusterState.ClusterConfig.LocallyManaged
+func (c *localControllerDelegate) GetClusterConfig() ClusterConfig {
+	return *c.clusterState.ClusterConfig
 }
 
-func (c clusterController) GetClusterConfig() *ClusterConfig {
-	return c.clusterState.ClusterConfig
-}
-
-func (c clusterController) GetMasters() []Node {
+func (c *localControllerDelegate) GetMasters() []Node {
 	return c.clusterState.Masters
 }
 
-func (c clusterController) GetWorkers() []Node {
+func (c *localControllerDelegate) GetWorkers() []Node {
 	return c.clusterState.Workers
 }
 
-func (c clusterController) ReserveNodeIP(master bool) string {
+func (c *localControllerDelegate) ReserveNodeIP(master bool) string {
 	if c.clusterNATCIDR == nil {
 		return ""
 	}
 	return (*c.clusterNetCIDR).GetFreeIp()
 }
 
-func (c clusterController) ReserveInternalIP(master bool) string {
+func (c *localControllerDelegate) ReserveInternalIP(master bool) string {
 	if c.clusterNATCIDR == nil {
 		return ""
 	}
 	return (*c.clusterNATCIDR).GetFreeIp()
 }
 
-func (c clusterController) ReleaseNodeIP(ip string) {
+func (c *localControllerDelegate) ReleaseNodeIP(ip string) {
 	if c.clusterNetCIDR == nil {
 		return
 	}
 	(*c.clusterNetCIDR).MarkIpUnused(ip)
 }
 
-func (c clusterController) ReleaseInternalIP(ip string) {
+func (c *localControllerDelegate) ReleaseInternalIP(ip string) {
 	if c.clusterNATCIDR == nil {
 		return
 	}
 	(*c.clusterNATCIDR).MarkIpUnused(ip)
 }
 
-func (c clusterController) DrainNode(node Node) {
+func (c *localControllerDelegate) DrainNode(node Node) {
 	c.Exec("kubectl drain " + node.Name)
 }
 
-func (c clusterController) CordonNode(node Node) {
+func (c *localControllerDelegate) CordonNode(node Node) {
 	c.Exec("kubectl cordon " + node.Name)
 }
 
-func (c clusterController) Exec(command string) string {
+func (c *localControllerDelegate) Exec(command string) string {
 	// TODO implement remote master exec...
 	fmt.Println("TODO implement remote master exec: " + command)
 	return "Not implemented: " + command
@@ -550,18 +549,21 @@ func getClusterId(service netutil.Service) string {
 	return strings.TrimLeft(service.Service, ":")
 }
 
-func getServiceEndoint(service netutil.Service) Endpoint {
-	service.Service
+// Evaluates the service id as the left part of the WinKube service identifier:
+// e.g. 'master:myCluster01' results in 'master'
+func getServiceIdentifier(service netutil.Service) string {
+	// format: service:clusterId
+	return strings.TrimRight(service.Service, ":")
 }
 
 // Evaluates the nodetype based on the current service identifier
 func getNodeType(service netutil.Service) NodeType {
-	switch getServiceEndoint(service) {
-	case MasterEndpoint:
+	switch strings.ToLower(getServiceIdentifier(service)) {
+	case "master":
 		return Master
-	case WorkerEndpoint:
+	case "worker":
 		return Worker
-	case ControllerEndpoint:
+	case "controller":
 		return Controller
 	default:
 		return UndefinedNode
@@ -601,12 +603,12 @@ func (this Cluster) getNodeByService(service *netutil.Service) *Node {
 }
 func (this Cluster) getNode(serviceId string) *Node {
 	for _, item := range this.Masters {
-		if serviceId == item.id {
+		if serviceId == item.Id {
 			return &item
 		}
 	}
 	for _, item := range this.Workers {
-		if serviceId == item.id {
+		if serviceId == item.Id {
 			return &item
 		}
 	}
@@ -621,8 +623,8 @@ func hostname() string {
 
 // This creates the cluster API application serving cluster data to other nodes.
 // This application is active only, if this node is configured as a cluster
-// controller.
-func createClusterManagerWebApp(controller *clusterController) *webapp.WebApplication {
+// controllerConnection.
+func createClusterManagerWebApp(controller *localControllerDelegate) *webapp.WebApplication {
 	webapp := webapp.CreateWebApp("cluster", "/cluster", language.English)
 	webapp.GetAction("/id", controller.actionClusterId)
 	webapp.GetAction("/catalog/knownids", actionKnownIds)
@@ -639,46 +641,14 @@ func createClusterManagerWebApp(controller *clusterController) *webapp.WebApplic
 	return webapp
 }
 
-func (this clusterController) actionClusterId(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+func (this localControllerDelegate) actionClusterId(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	writer.Write([]byte(this.clusterState.ClusterConfig.ClusterId))
 	writer.Header().Set("Content-Type", "text/plain")
 	writer.WriteHeader(http.StatusOK)
 	return nil
 }
 
-func actionKnownIds(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	data, err := json.MarshalIndent((*Container().ClusterManager).GetKnownClusters(), "", "  ")
-	if err != nil {
-		writer.Write([]byte("Failed to serialize known cluster ids to JSON: " + err.Error()))
-		writer.WriteHeader(http.StatusInternalServerError)
-	} else {
-		writer.Write(data)
-		writer.Header().Set("Content-Type", "application/json")
-	}
-	return nil
-}
-
-func actionClusterState(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	clusterId := context.GetQueryParameter("cluster")
-	var data []byte
-	var err error
-	clusterManager := *Container().ClusterManager
-	if clusterId == "" {
-		data, err = json.MarshalIndent(clusterManager.GetClusterById(clusterManager.GetClusterId()), "", "  ")
-	} else {
-		data, err = json.MarshalIndent(clusterManager.GetClusterById(clusterId), "", "  ")
-	}
-	if err != nil {
-		writer.Write([]byte("Failed to serialize cluster state to JSON: " + err.Error()))
-		writer.WriteHeader(http.StatusInternalServerError)
-	} else {
-		writer.Write(data)
-		writer.Header().Set("Content-Type", "application/json")
-	}
-	return nil
-}
-
-func (this clusterController) actionServeClusterConfig(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+func (this localControllerDelegate) actionServeClusterConfig(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	data, err := json.MarshalIndent(this.clusterState.ClusterConfig, "", "  ")
 	if err != nil {
 		writer.Write([]byte("Failed to serialize config to JSON: " + err.Error()))
@@ -690,7 +660,7 @@ func (this clusterController) actionServeClusterConfig(context *webapp.RequestCo
 	return nil
 }
 
-func (this clusterController) actionReserveInternalIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+func (this localControllerDelegate) actionReserveInternalIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	master := util.ParseBool(context.GetQueryParameter("master"))
 	ip := this.ReserveInternalIP(master)
 	if ip == "" {
@@ -702,7 +672,7 @@ func (this clusterController) actionReserveInternalIP(context *webapp.RequestCon
 	writer.WriteHeader(http.StatusOK)
 	return nil
 }
-func (this clusterController) actionReleaseInternalIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+func (this localControllerDelegate) actionReleaseInternalIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	address := context.GetQueryParameter("address")
 	if address == "" {
 		writer.Write([]byte("Parameter 'address' missing."))
@@ -713,7 +683,7 @@ func (this clusterController) actionReleaseInternalIP(context *webapp.RequestCon
 	writer.WriteHeader(http.StatusOK)
 	return nil
 }
-func (this clusterController) actionReserveNodeIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+func (this localControllerDelegate) actionReserveNodeIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	master := util.ParseBool(context.GetQueryParameter("master"))
 	ip := this.ReserveNodeIP(master)
 	if ip == "" {
@@ -725,7 +695,7 @@ func (this clusterController) actionReserveNodeIP(context *webapp.RequestContext
 	writer.WriteHeader(http.StatusOK)
 	return nil
 }
-func (this clusterController) actionReleaseNodeIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+func (this localControllerDelegate) actionReleaseNodeIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	address := context.GetQueryParameter("address")
 	if address == "" {
 		writer.Write([]byte("Parameter 'address' missing."))
@@ -736,7 +706,7 @@ func (this clusterController) actionReleaseNodeIP(context *webapp.RequestContext
 	writer.WriteHeader(http.StatusOK)
 	return nil
 }
-func (this clusterController) actionNodeStarted(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+func (this localControllerDelegate) actionNodeStarted(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	node := Node{}
 	bodyBytes, err := ioutil.ReadAll(context.Request.Body)
 	if err != nil {
@@ -762,7 +732,7 @@ func (this clusterController) actionNodeStarted(context *webapp.RequestContext, 
 	writer.WriteHeader(http.StatusOK)
 	return nil
 }
-func (this clusterController) actionNodeStopped(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+func (this localControllerDelegate) actionNodeStopped(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	nodeId := context.GetQueryParameter("id")
 	node := this.clusterState.getNode(nodeId)
 	if node == nil {
@@ -773,7 +743,7 @@ func (this clusterController) actionNodeStopped(context *webapp.RequestContext, 
 	writer.WriteHeader(http.StatusOK)
 	return nil
 }
-func (this clusterController) actionGetMasters(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+func (this localControllerDelegate) actionGetMasters(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	data, err := json.MarshalIndent(this.clusterState.Masters, "", "  ")
 	if err != nil {
 		writer.Write([]byte("Failed to mashal masters: " + err.Error()))
@@ -784,7 +754,7 @@ func (this clusterController) actionGetMasters(context *webapp.RequestContext, w
 	writer.WriteHeader(http.StatusOK)
 	return nil
 }
-func (this clusterController) actionGetWorkers(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+func (this localControllerDelegate) actionGetWorkers(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	data, err := json.MarshalIndent(this.clusterState.Workers, "", "  ")
 	if err != nil {
 		writer.Write([]byte("Failed to mashal workers: " + err.Error()))
@@ -796,37 +766,90 @@ func (this clusterController) actionGetWorkers(context *webapp.RequestContext, w
 	return nil
 }
 
-func (this Cluster) addOrUpdateMaster(node Node) {
-	index := util.IndexOf(this.Masters, node)
-	if index < 0 {
-		this.Masters = append(this.Masters, node)
+func actionKnownIds(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	data, err := json.MarshalIndent((*Container().LocalController).GetKnownClusters(), "", "  ")
+	if err != nil {
+		writer.Write([]byte("Failed to serialize known cluster ids to JSON: " + err.Error()))
+		writer.WriteHeader(http.StatusInternalServerError)
 	} else {
-		this.Masters[index] = node
+		writer.Write(data)
+		writer.Header().Set("Content-Type", "application/json")
 	}
-}
-func (this Cluster) addOrUpdateWorker(node Node) {
-	index := util.IndexOf(this.Workers, node)
-	if index < 0 {
-		this.Workers = append(this.Workers, node)
-	} else {
-		this.Workers[index] = node
-	}
+	return nil
 }
 
-func (this Cluster) removeNode(node *Node) {
-	for index, n := range this.Workers {
-		if n.id == node.id {
-			this.Workers = remove(this.Workers, index)
-		}
+func actionClusterState(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	clusterId := context.GetQueryParameter("cluster")
+	var data []byte
+	var err error
+	localController := *Container().LocalController
+	if clusterId == "" {
+		data, err = json.MarshalIndent(localController.GetClusterById(localController.GetClusterId()), "", "  ")
+	} else {
+		data, err = json.MarshalIndent(localController.GetClusterById(clusterId), "", "  ")
 	}
-	for index, n := range this.Masters {
-		if n.id == node.id {
-			this.Masters = remove(this.Masters, index)
-		}
+	if err != nil {
+		writer.Write([]byte("Failed to serialize cluster state to JSON: " + err.Error()))
+		writer.WriteHeader(http.StatusInternalServerError)
+	} else {
+		writer.Write(data)
+		writer.Header().Set("Content-Type", "application/json")
 	}
+	return nil
 }
 
 func remove(items []Node, i int) []Node {
 	items[len(items)-1], items[i] = items[i], items[len(items)-1]
 	return items[:len(items)-1]
+}
+
+// utils
+
+func nodeFromService(s netutil.Service) *Node {
+	return &Node{
+		Id:        s.Id,
+		Host:      s.Host(),
+		Timestamp: time.Now(),
+		NodeType:  getNodeType(s),
+		ClusterId: getClusterId(s),
+		Endpoint:  s.Location,
+	}
+}
+
+func performGet(uri string) ([]byte, error) {
+	resp, err := http.Get(uri)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, readErr := ioutil.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, readErr
+	}
+	return data, nil
+}
+
+func performDelete(uri string) ([]byte, error) {
+	req, err := http.NewRequest("DELETE", uri, nil)
+	if util.CheckAndLogError("Failed to create delkete request", err) {
+		resp, qerr := http.DefaultClient.Do(req)
+		if qerr != nil {
+			return nil, qerr
+		}
+		return ioutil.ReadAll(resp.Body)
+	}
+	return nil, err
+}
+
+func loadRemoteConfig(connection ClusterControllerConnection) (*ClusterConfig, error) {
+	data, err := performGet("http://" + connection.ControllerHost + ":9999/cluster/config")
+	if err != nil {
+		return nil, err
+	}
+	config := &ClusterConfig{}
+	err = json.Unmarshal(data, config)
+	if err != nil {
+		return nil, err
+	}
+	return config, nil
 }
