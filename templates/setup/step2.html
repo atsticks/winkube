@@ -67,6 +67,11 @@
                 <input name="ClusterLogin-Credentials" type="text" class="form-control" id="cred" aria-describedby="clusterLoginHelp" placeholder="{{ index .Messages "cluster-credentials.placeholder"}}"
                        value="{{ .Data.Config.Values.ClusterLogin.ClusterCredentials }}">
                 <small id="clusterHelp" class="form-text text-muted">{{ index .Messages "cluster-credentials.help"}}</small>
+
+                <label for="cred">*{{ index .Messages "cluster-controllerhost.label"}}</label>
+                <input name="ClusterLogin-Credentials" type="text" class="form-control" id="cred" aria-describedby="clusterControllerHelp" placeholder="{{ index .Messages "cluster-controllerhost.placeholder"}}"
+                       value="{{ .Data.Config.Values.ClusterLogin.ControllerHost }}">
+                <small id="clusterControllerHelp" class="form-text text-muted">{{ index .Messages "cluster-controllerhost.help"}}</small>
             </div>
         {{else}}
             <div class="form-group" id="clusterconfig">
@@ -74,40 +79,40 @@
                 <p>{{ index .Messages "cluster-id.description"}}</p>
                 <label for="cluster_id">*{{ index .Messages "cluster-id.label"}}</label>
                 <input name="Cluster-Id" type="text" class="form-control" id="cluster_id" aria-describedby="clusterHelp" placeholder="{{ index .Messages "cluster-id.placeholder"}}"
-                       value="{{ .Data.Config.Values.ClusterConfig.ClusterId }}">
+                       value="{{ .Data.Config.Values.ControllerConfig.ClusterId }}">
                 <small id="clusterHelp" class="form-text text-muted">{{ index .Messages "cluster-id.help"}}</small>
                 <br/>
                 <label for="cluster_credentials">{{ index .Messages "cluster-credentials.label"}}</label>
                 <input name="Cluster-Credentials" type="password" class="form-control" id="cluster_credentials" aria-describedby="clusterCredentialsHelp" placeholder="{{ index .Messages "cluster-credentials.placeholder"}}"
-                        value="{{ .Data.Config.Values.ClusterConfig.ClusterCredentials }}">
+                        value="{{ .Data.Config.Values.ControllerConfig.ClusterCredentials }}">
                 <small id="ClusterCredentialsHelp" class="form-text text-muted">{{ index .Messages "cluster-credentials.help"}}</small>
                 <br/>
                 <label for="net_cidr">{{ index .Messages "cluster-cidr.label"}}</label>
                 <input name="Cluster-PodCIDR" type="text" class="form-control" id="net_cidr" aria-describedby="cidrHelp" placeholder="{{ index .Messages "cluster-cidr.placeholder"}}"
-                       value="{{ .Data.Config.Values.ClusterConfig.ClusterPodCIDR }}">
+                       value="{{ .Data.Config.Values.ControllerConfig.ClusterPodCIDR }}">
                 <small id="cidrHelp" class="form-text text-muted">{{ index .Messages "cluster-cidr.help"}}</small>
 
                 <label for="service_domain">{{ index .Messages "cluster-service-domain.label"}}</label>
                 <input name="Cluster-ServiceDomain" type="text" class="form-control" id="service_domain" aria-describedby="serviceDomainHelp" placeholder="{{ index .Messages "cluster-service-domain.placeholder"}}"
-                       value="{{ .Data.Config.Values.ClusterConfig.ClusterServiceDomain }}">
+                       value="{{ .Data.Config.Values.ControllerConfig.ClusterServiceDomain }}">
                 <small id="serviceDomainHelp" class="form-text text-muted">{{ index .Messages "cluster-service-domain.help"}}</small>
                 <br/>
                 <label for="net_select">{{ index .Messages "network-vm-strategy.description"}}</label>
                 <div class="form-group form-check" id="net_select">
-                    <input name="Cluster-VMNet" type="radio" class="form-radio-input" id="net_select_bridged" value="Bridged" {{if eq .Data.Config.Values.ClusterConfig.ClusterVMNet.String "Bridged" }}checked="true"{{end}} >
+                    <input name="Cluster-VMNet" type="radio" class="form-radio-input" id="net_select_bridged" value="Bridged" {{if eq .Data.Config.Values.ControllerConfig.ClusterVMNet.String "Bridged" }}checked="true"{{end}} >
                     <label class="form-check-label" for="net_select_bridged">{{ index .Messages "network-vm-strategy-bridged.label"}}</label>
                     <small id="net_select_bridgedHelp" class="form-text text-muted">{{ index .Messages "network-vm-strategy-bridged.help"}}</small>
                     <label for="service_cidr">{{ index .Messages "cluster-service-cidr.label"}}</label>
                     <input name="Cluster-NetCIDR" type="text" class="form-control" id="net_cidr" aria-describedby="netCidrHelp" placeholder="{{ index .Messages "cluster-net-cidr.placeholder"}}"
-                           value="{{ .Data.Config.Values.ClusterConfig.ClusterNetCIDR }}">
+                           value="{{ .Data.Config.Values.ControllerConfig.ClusterNetCIDR }}">
                     <small id="netCidrHelp" class="form-text text-muted">{{ index .Messages "cluster-net-cidr.help"}}</small>
                     <hr/>
-                    <input name="Cluster-VMNet" type="radio" class="form-radio-input" id="net_select_nat" value="NAT" {{if eq .Data.Config.Values.ClusterConfig.ClusterVMNet.String "NAT" }}checked="true"{{end}}>
+                    <input name="Cluster-VMNet" type="radio" class="form-radio-input" id="net_select_nat" value="NAT" {{if eq .Data.Config.Values.ControllerConfig.ClusterVMNet.String "NAT" }}checked="true"{{end}}>
                     <label class="form-check-label" for="net_select_nat">{{ index .Messages "network-vm-strategy-nat.label"}}</label>
                     <small id="net_select_bridgedHelp" class="form-text text-muted">{{ index .Messages "network-vm-strategy-nat.help"}}</small>
                     <label for="masterApiPort">{{ index .Messages "cluster-master-api-port.label"}}</label>
                     <input name="Cluster-MasterApiPort" type="text" class="form-control" id="masterApiPort" aria-describedby="masterApiPortHelp" placeholder="{{ index .Messages "cluster-master-api-port.placeholder"}}"
-                           value="{{ .Data.Config.Values.ClusterConfig.ClusterMasterApiPort }}">
+                           value="{{ .Data.Config.Values.ControllerConfig.ClusterMasterApiPort }}">
                     <small id="masterApiPortHelp" class="form-text text-muted">{{ index .Messages "cluster-master-api-port.help"}}</small>
                 </div>
             </div>
