@@ -48,6 +48,11 @@
                     <option {{if .Selected}}selected {{end}}value="{{ .Value}}">{{.Name}}</option>
                 {{end}}
             </select>
+            <label for="config-hostip">{{ index .Messages "hostip.label"}}</label>
+            <input type="text" readonly class="form-control-plaintext" id="config-hostip" value="{{ .Data.Config.Values.LocalHostConfig.NetHostIP}}" />
+            <label for="config-hostname">{{ index .Messages "hostname.label"}}</label>
+            <input type="text" class="form-control-plaintext" id="config-hostname" name="Net-Hostname" value="{{ .Data.Config.Values.LocalHostConfig.NetHostname}}" />
+            <br/>
             <br/>
             <p>{{ index .Messages "upnp.alternative.description"}}</p>
             <label for="lookupController">{{ index .Messages "lookupController.label"}}</label>
@@ -105,7 +110,7 @@
                     <input name="Cluster-VMNet" type="radio" class="form-radio-input" id="net_select_bridged" value="Bridged" {{if eq .Data.Config.Values.ControllerConfig.ClusterVMNet.String "Bridged" }}checked="true"{{end}} >
                     <label class="form-check-label" for="net_select_bridged">{{ index .Messages "network-vm-strategy-bridged.label"}}</label>
                     <small id="net_select_bridgedHelp" class="form-text text-muted">{{ index .Messages "network-vm-strategy-bridged.help"}}</small>
-                    <label for="service_cidr">{{ index .Messages "cluster-service-cidr.label"}}</label>
+                    <label for="net_cidr">{{ index .Messages "cluster-service-cidr.label"}}</label>
                     <input name="Cluster-NetCIDR" type="text" class="form-control" id="net_cidr" aria-describedby="netCidrHelp" placeholder="{{ index .Messages "cluster-net-cidr.placeholder"}}"
                            value="{{ .Data.Config.Values.ControllerConfig.ClusterNetCIDR }}">
                     <small id="netCidrHelp" class="form-text text-muted">{{ index .Messages "cluster-net-cidr.help"}}</small>
@@ -134,8 +139,8 @@
                 <small id="masterNameHelp" class="form-text text-muted">{{ index .Messages "master-name.help"}}</small>
 
                 <label for="master-net_nodeip">{{ index .Messages "master-ip.label"}}</label>
-                <input name="Master-NodeIP" type="text" class="form-control" id="net_nodeip" aria-describedby="masterIPHelp" placeholder="{{ index .Messages "node-ip.placeholder"}}"
-                       value="{{ .Data.Config.Values.MasterNode.NodeIP }}">
+                <input name="Master-NodeAddress" type="text" class="form-control" id="net_nodeip" aria-describedby="masterIPHelp" placeholder="{{ index .Messages "node-ip.placeholder"}}"
+                       value="{{ .Data.Config.Values.MasterNode.NodeAddress }}">
                 <small id="masterIPHelp" class="form-text text-muted">{{ index .Messages "master-ip.help"}}</small>
 
                 <label for="master-net_masterimage">{{ index .Messages "master-image.label"}}</label>

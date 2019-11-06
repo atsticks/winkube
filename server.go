@@ -23,6 +23,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/winkube/service"
 	"github.com/winkube/service/assert"
+	"github.com/winkube/util"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -70,14 +71,17 @@ func manageState() {
 					action.LogActionLn("Configuring nodes...")
 					clusterConfig := (*service.Container().LocalController).GetClusterConfig()
 					assert.AssertNotNil(clusterConfig)
-					(*service.Container().NodeManager).ConfigureNodes(*config, clusterConfig, true)
-					log.Info("Starting nodes...")
-					action.LogActionLn("Starting nodes...")
-					(*service.Container().NodeManager).StartNodes()
-					log.Info("Registering services...")
-					service.Container().CurrentStatus = service.APPSTATE_RUNNING
-					log.Info("New Mode applied: RUNNING")
-					action.CompleteWithMessage("New Mode applied: RUNNING")
+					action := (*service.Container().NodeManager).ConfigureNodes(*config, clusterConfig, true)
+					if util.CheckAndLogError("Failed to configure the nodes", action.Error) {
+						log.Info("Starting nodes...")
+						action.LogActionLn("Starting nodes...")
+						(*service.Container().NodeManager).StartNodes()
+						log.Info("Registering services...")
+						service.Container().CurrentStatus = service.APPSTATE_RUNNING
+					} else {
+						service.Container().RequiredAppStatus = service.APPSTATE_SETUP
+						action.CompleteWithMessage("Cannot switch to a RUNNING state: config is not ready.")
+					}
 				} else {
 					service.Container().RequiredAppStatus = service.APPSTATE_SETUP
 					action.CompleteWithMessage("Cannot switch to a RUNNING state: config is not ready.")

@@ -18,13 +18,14 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"sync"
 	"time"
 )
 
 type CIDR interface {
 	Cidr() string
 	GetFreeIp() string
-	MarkIpUsed(ip string)
+	MarkIpUsed(ip string) bool
 	MarkIpUnused(ip string)
 	FreeIps() []string
 	UsedIps() []string
@@ -33,14 +34,25 @@ type CIDR interface {
 
 type cidr struct {
 	cidr    string
-	usedIps map[string]time.Time
+	ip      net.IP
+	net     *net.IPNet
+	usedIps map[string]*time.Time
+	mutex   sync.RWMutex
 }
 
 func CreateCIDR(cidrDef string) *CIDR {
+	ip, ipnet, err := net.ParseCIDR(cidrDef)
+	if err != nil {
+		panic("Invalid CIDR: " + cidrDef + ": " + err.Error())
+	}
 	cidr := cidr{
 		cidr:    cidrDef,
-		usedIps: make(map[string]time.Time),
+		usedIps: make(map[string]*time.Time),
+		net:     ipnet,
+		ip:      ip,
+		mutex:   sync.RWMutex{},
 	}
+
 	var cidrInstance CIDR = &cidr
 	return &cidrInstance
 }
@@ -49,23 +61,45 @@ func (this *cidr) Cidr() string {
 	return this.cidr
 }
 func (this *cidr) GetFreeIp() string {
+	this.mutex.RLock()
+	defer this.mutex.RUnlock()
 	freeIps := this.FreeIps()
 	for _, ip := range freeIps {
 		if !Ping(ip) {
-			this.usedIps[ip] = time.Now()
+			t := time.Now()
+			this.usedIps[ip] = &t
 			return ip
 		}
 	}
 	return ""
 }
-func (this *cidr) MarkIpUsed(ip string) {
-	this.usedIps[ip] = time.Now()
+func (this *cidr) MarkIpUsed(ip string) bool {
+	if ip == "" || this.usedIps[ip] != nil {
+		return false
+	}
+	if this.ip.String() == ip {
+		fmt.Printf("Cannot reserve net IP %v for subnet %s\n", ip, this.cidr)
+		return false
+	}
+	if !this.net.Contains(net.ParseIP(ip)) {
+		fmt.Printf("IP %v cannot be reserved, not part of subnet %s\n", ip, this.cidr)
+		return false
+	}
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+	t := time.Now()
+	this.usedIps[ip] = &t
+	return true
 }
 func (this *cidr) MarkIpUnused(ip string) {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
 	delete(this.usedIps, ip)
 }
 func (this *cidr) FreeIps() []string {
-	var result []string
+	this.mutex.RLock()
+	defer this.mutex.RUnlock()
+	var result = []string{}
 	for _, ip := range this.AllIps() {
 		if _, ok := this.usedIps[ip]; !ok {
 			result = append(result, ip)
@@ -74,14 +108,16 @@ func (this *cidr) FreeIps() []string {
 	return result
 }
 func (this *cidr) UsedIps() []string {
-	var result []string
+	this.mutex.RLock()
+	defer this.mutex.RUnlock()
+	var result = []string{}
 	for ip, _ := range this.usedIps {
 		result = append(result, ip)
 	}
 	return result
 }
 func (this *cidr) AllIps() []string {
-	ips, _ := Hosts(this.cidr)
+	ips, _ := this.hosts()
 	return ips
 }
 
@@ -184,15 +220,23 @@ func AddressCount(network *net.IPNet) uint64 {
 	return 1 << (uint64(bits) - uint64(prefixLen))
 }
 
-func Hosts(cidr string) ([]string, error) {
-	ip, ipnet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return nil, err
-	}
-
+func (this cidr) hosts() ([]string, error) {
 	var ips []string
-	for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); Inc(ip) {
-		ips = append(ips, ip.String())
+	var currentIp string
+	for ip := this.ip.Mask(this.net.Mask); this.net.Contains(ip); ip = Inc(ip) {
+		prevIp := currentIp
+		currentIp = ip.String()
+		if currentIp == prevIp && len(ips) > 1 {
+			break
+		}
+		ips = append(ips, currentIp)
+	}
+	if len(ips) == 1 {
+		return ips, nil
+	}
+	if len(ips) == 2 {
+		// remove network address and broadcast address
+		return ips[1:], nil
 	}
 	// remove network address and broadcast address
 	return ips[1 : len(ips)-1], nil

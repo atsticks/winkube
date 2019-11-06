@@ -188,6 +188,11 @@ func readNetConfig(config *SystemConfiguration, context *webapp.RequestContext) 
 			context.GetParameter("Net-Interface")
 		Log().Debug("In: Net-Interface = " + config.NetHostInterface)
 	}
+	if context.GetParameter("Net-Hostname") != "" {
+		config.NetHostname =
+			context.GetParameter("Net-Hostname")
+		Log().Debug("In: Net-Hostname = " + config.NetHostname)
+	}
 	if config.ControllerConfig != nil && config.ControllerConfig.ClusterVMNet == UndefinedNetType {
 		config.ControllerConfig.ClusterVMNet = NAT
 		Log().Debug("Applied: ClusterConfig-VMNet = " + config.ControllerConfig.ClusterVMNet.String())
@@ -240,10 +245,10 @@ func readClusterConfig(config *ClusterConfig, context *webapp.RequestContext) {
 }
 
 func readLocalNodeConfig(config *ClusterNodeConfig, context *webapp.RequestContext, prefix string) {
-	if context.GetParameter(prefix+"Node-NodeIP") != "" {
-		config.NodeIP =
-			context.GetParameter(prefix + "Node-NodeIP")
-		Log().Debug("In: " + prefix + "NodeIP = " + config.NodeIP)
+	if context.GetParameter(prefix+"Node-NodeAddress") != "" {
+		config.NodeAddress =
+			context.GetParameter(prefix + "Node-NodeAddress")
+		Log().Debug("In: " + prefix + "NodeAddress = " + config.NodeAddress)
 	}
 	if context.GetParameter(prefix+"Node-Type") != "" {
 		config.NodeType =
@@ -437,7 +442,7 @@ func InstallConfigAction(context *webapp.RequestContext, writer http.ResponseWri
 	action := (*GetActionManager()).StartAction("Validating configuration")
 	err := nodeManager.ValidateConfig()
 	if err != nil {
-		defer action.CompleteWitError(err)
+		defer action.CompleteWithError(err)
 		data := make(map[string]interface{})
 		bean := readConfig(context)
 		data["Config"] = bean

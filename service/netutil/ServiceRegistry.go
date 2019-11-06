@@ -197,7 +197,7 @@ func (this *serviceRegistry) onBye(m *ssdp.ByeMessage) {
 		Id:      UUIDFromUSN(m.USN),
 		Service: ServiceFromUSN(m.USN),
 	}
-	log.Info("Bye: From %s\n", s)
+	log.Info(fmt.Sprintf("Bye: From %v\n", s))
 	if m.From.String() != this.localIp.String() {
 		// TODO handle service exit...
 	}
@@ -212,7 +212,7 @@ func (this *serviceRegistry) onSearch(m *ssdp.SearchMessage) {
 		if len(this.services) > 0 {
 			//services := mc.serviceProvider()
 			if this.verbose {
-				log.Info("[SSDP] TODO Answering UPnP search request for %s", this.adType)
+				log.Info(fmt.Sprintf("[SSDP] TODO Answering UPnP search request for %v", this.adType))
 			}
 		}
 	}
@@ -269,7 +269,7 @@ func (this *serviceRegistry) keepAliveLoop() {
 	this.advertizing = true
 	for this.advertizing {
 		for providerId, services := range this.services {
-			log.Debug(fmt.Sprint("[SSDP] Advertizing services for provider: %v ...", providerId))
+			log.Debug(fmt.Sprintf("[SSDP] Advertizing services for provider: %v ...", providerId))
 			for _, service := range services {
 				usedAdvertisers := []string{}
 				advertizer, err := ssdp.Advertise(service.ST(), service.USN(), service.Location, service.Server,
@@ -299,7 +299,7 @@ func (this *serviceRegistry) keepAliveLoop() {
 						}
 					}
 					for key, adv := range unusedAdvertisers {
-						log.Info("Removing service: %s\n", key)
+						log.Info(fmt.Sprintf("Removing service: %s\n", key))
 						delete(this.advertizers, key)
 						adv.Bye()
 						adv.Close()
@@ -318,7 +318,7 @@ func (this *serviceRegistry) triggerSearch() {
 	for {
 		time.Sleep(5 * time.Second)
 		servicesFound, _ := ssdp.Search(this.adType, 8, this.localIp.String())
-		log.Debug("***** Services found: %s", servicesFound)
+		log.Debug(fmt.Sprintf("***** Services found: %v", servicesFound))
 		time.Sleep(10 * time.Second)
 	}
 

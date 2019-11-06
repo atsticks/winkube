@@ -24,7 +24,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -91,9 +90,7 @@ type ControllerDelegate interface {
 	GetClusterConfig() ClusterConfig
 	Exec(command string) string
 	ReserveNodeIP(master bool) string
-	ReserveInternalIP(master bool) string
 	ReleaseNodeIP(string)
-	ReleaseInternalIP(string)
 }
 
 type LocalController interface {
@@ -104,9 +101,7 @@ type LocalController interface {
 	GetClusterConfig() ClusterConfig
 	GetState() string
 	ReserveNodeIP(master bool) string
-	ReserveInternalIP(master bool) string
 	ReleaseNodeIP(string)
-	ReleaseInternalIP(string)
 	DrainNode(node Node)
 	CordonNode(node Node)
 
@@ -148,11 +143,56 @@ type localController struct {
 
 func (c *localController) Start(config *SystemConfiguration) error {
 	Log().Info("Starting local controller...")
+	var err error
 	if config.IsControllerNode() {
-		return c.startLocal(*config.ControllerConfig, config.Id)
+		err = c.startLocal(config, config.Id)
 	} else {
-		return c.startRemote(*config.ClusterLogin)
+		err = c.startRemote(*config.ClusterLogin)
 	}
+	if !util.CheckAndLogError("Failed to start local controller.", err) {
+		return err
+	}
+	if config.IsMasterNode() {
+		c.configureMaster(config)
+	}
+	if config.IsWorkerNode() {
+		c.configureWorker(config)
+	}
+	err = Container().Validator.Struct(c)
+	if !util.CheckAndLogError("Failed to configure local nodes.", err) {
+		return err
+	}
+	return nil
+}
+
+func (this *localController) configureMaster(configuration *SystemConfiguration) {
+	configuration.MasterNode.NodeNetType = configuration.ControllerConfig.ClusterVMNet
+	if configuration.ControllerConfig.ClusterVMNet == Bridged {
+		configuration.MasterNode.NodeAddress = (*this.controllerDelegate).ReserveNodeIP(true)
+		configuration.MasterNode.NodeAdressInternal = configuration.MasterNode.NodeAddress
+	} else if configuration.ControllerConfig.ClusterVMNet == NAT {
+		configuration.MasterNode.NodeAddress = configuration.LocalHostConfig.NetHostname
+		configuration.MasterNode.NodeAdressInternal = (*this.controllerDelegate).ReserveNodeIP(true)
+	} else {
+		panic("Unsupported net type found")
+	}
+	//configuration.ControllerConfig.ClusterAllMasters = append(configuration.ControllerConfig.ClusterAllMasters, *configuration.MasterNode)
+	//if configuration.IsPrimaryMaster(){
+	//	configuration.ControllerConfig.ClusterMasterAddress = configuration.MasterNode.NodeAddress
+	//}
+}
+func (this *localController) configureWorker(configuration *SystemConfiguration) {
+	configuration.WorkerNode.NodeNetType = configuration.ControllerConfig.ClusterVMNet
+	if configuration.ControllerConfig.ClusterVMNet == Bridged {
+		configuration.WorkerNode.NodeAddress = (*this.controllerDelegate).ReserveNodeIP(false)
+		configuration.WorkerNode.NodeAdressInternal = configuration.WorkerNode.NodeAddress
+	} else if configuration.ControllerConfig.ClusterVMNet == NAT {
+		configuration.WorkerNode.NodeAddress = configuration.LocalHostConfig.NetHostname
+		configuration.WorkerNode.NodeAdressInternal = (*this.controllerDelegate).ReserveNodeIP(true)
+	} else {
+		panic("Unsupported net type found")
+	}
+	//configuration.ControllerConfig.ClusterAllWorkers = append(configuration.ControllerConfig.ClusterAllWorkers, *configuration.WorkerNode)
 }
 
 func (c *localController) ReserveNodeIP(master bool) string {
@@ -160,19 +200,9 @@ func (c *localController) ReserveNodeIP(master bool) string {
 	return (*c.controllerDelegate).ReserveNodeIP(master)
 }
 
-func (c *localController) ReserveInternalIP(master bool) string {
-	c.ensureRunning()
-	return (*c.controllerDelegate).ReserveInternalIP(master)
-}
-
 func (c *localController) ReleaseNodeIP(ip string) {
 	c.ensureRunning()
 	(*c.controllerDelegate).ReleaseNodeIP(ip)
-}
-
-func (c *localController) ReleaseInternalIP(ip string) {
-	c.ensureRunning()
-	(*c.controllerDelegate).ReleaseInternalIP(ip)
 }
 
 // Checks if this component is running, panics otherwise
@@ -198,18 +228,18 @@ func (c *localController) GetState() string {
 	return (*c.controllerDelegate).Exec("kubectl get nodes")
 }
 
-func (this *localController) startLocal(config ClusterConfig, nodedId string) error {
-	Log().Info("Starting local cluster controller for cluster: " + config.ClusterId)
-	this.clusterId = config.ClusterId
-	clusterState := this.knownClusters[config.ClusterId]
+func (this *localController) startLocal(config *SystemConfiguration, nodedId string) error {
+	Log().Info("Starting local cluster controller for cluster: " + config.ControllerConfig.ClusterId)
+	this.clusterId = config.ControllerConfig.ClusterId
+	clusterState := this.knownClusters[config.ControllerConfig.ClusterId]
 	if clusterState == nil {
 		clusterState = &Cluster{
-			ClusterConfig: &config,
-			Controller:    createLocalControllerNode(config.ClusterId, nodedId),
+			ClusterConfig: config.ControllerConfig,
+			Controller:    createLocalControllerNode(config.ControllerConfig.ClusterId, nodedId),
 			Masters:       []Node{},
 			Workers:       []Node{},
 		}
-		this.knownClusters[config.ClusterId] = clusterState
+		this.knownClusters[config.ControllerConfig.ClusterId] = clusterState
 	} else {
 		if clusterState.Controller.Host != hostname() {
 			panic(fmt.Sprint("Cluster is remotedly managed. Cannot start a local controllerConnection for &v", config.ClusterId))
@@ -217,7 +247,7 @@ func (this *localController) startLocal(config ClusterConfig, nodedId string) er
 	}
 	clController := localControllerDelegate{
 		clusterState:   clusterState,
-		clusterNetCIDR: netutil.CreateCIDR(config.ClusterNetCIDR),
+		clusterNetCIDR: netutil.CreateCIDR(config.ControllerConfig.ClusterNetCIDR),
 	}
 	var cctl ControllerDelegate = &clController
 	this.controllerDelegate = &cctl
@@ -227,6 +257,7 @@ func (this *localController) startLocal(config ClusterConfig, nodedId string) er
 	}
 	return clController.Start()
 }
+
 func (this *localController) startRemote(clusterConnection ClusterControllerConnection) error {
 	Log().Info("Connecting to remote cluster: " + clusterConnection.ClusterId + "...")
 	clusterConfig, err := loadRemoteConfig(clusterConnection)
@@ -403,29 +434,11 @@ func (r remoteControllerDelegate) ReserveNodeIP(master bool) string {
 	return string(data)
 }
 
-func (r remoteControllerDelegate) ReserveInternalIP(master bool) string {
-	// Call controllerConnection to get internal ip
-	data, err := performGet("http://" + r.controllerConnection.ControllerHost + ":9999/cluster/internalip?master=" + strconv.FormatBool(master))
-	if err != nil {
-		Log().Error("ReserveInternalIP", err)
-		return ""
-	}
-	return string(data)
-}
-
 func (r remoteControllerDelegate) ReleaseNodeIP(ip string) {
 	// Call controllerConnection to release ip
 	_, err := performDelete("http://" + r.controllerConnection.ControllerHost + ":9999/cluster/nodeip?ip=" + ip)
 	if err != nil {
 		Log().Error("ReleaseNodeIP", err)
-	}
-}
-
-func (r remoteControllerDelegate) ReleaseInternalIP(ip string) {
-	// Call controllerConnection to relöease internal ip
-	_, err := performDelete("http://" + r.controllerConnection.ControllerHost + ":9999/cluster/internalip?ip=" + ip)
-	if err != nil {
-		Log().Error("ReleaseInternalIP", err)
 	}
 }
 
@@ -453,7 +466,6 @@ func (r remoteControllerDelegate) masterRemoteExec(command string) string {
 // the cluster.
 type localControllerDelegate struct {
 	clusterState   *Cluster `validate:"required"`
-	clusterNATCIDR *netutil.CIDR
 	clusterNetCIDR *netutil.CIDR
 	server         *http.Server
 }
@@ -463,6 +475,8 @@ func (r *localControllerDelegate) GetState() string {
 }
 
 func (c *localControllerDelegate) Start() error {
+	// initialize CIDR managers
+	c.clusterNetCIDR = netutil.CreateCIDR(c.clusterState.ClusterConfig.ClusterNetCIDR)
 	// start the cloud server
 	Log().Info("Initializing controllerConnection api...")
 	router := mux.NewRouter()
@@ -501,17 +515,10 @@ func (c *localControllerDelegate) GetWorkers() []Node {
 }
 
 func (c *localControllerDelegate) ReserveNodeIP(master bool) string {
-	if c.clusterNATCIDR == nil {
+	if c.clusterNetCIDR == nil {
 		return ""
 	}
 	return (*c.clusterNetCIDR).GetFreeIp()
-}
-
-func (c *localControllerDelegate) ReserveInternalIP(master bool) string {
-	if c.clusterNATCIDR == nil {
-		return ""
-	}
-	return (*c.clusterNATCIDR).GetFreeIp()
 }
 
 func (c *localControllerDelegate) ReleaseNodeIP(ip string) {
@@ -519,13 +526,6 @@ func (c *localControllerDelegate) ReleaseNodeIP(ip string) {
 		return
 	}
 	(*c.clusterNetCIDR).MarkIpUnused(ip)
-}
-
-func (c *localControllerDelegate) ReleaseInternalIP(ip string) {
-	if c.clusterNATCIDR == nil {
-		return
-	}
-	(*c.clusterNATCIDR).MarkIpUnused(ip)
 }
 
 func (c *localControllerDelegate) DrainNode(node Node) {
@@ -632,8 +632,6 @@ func createClusterManagerWebApp(controller *localControllerDelegate) *webapp.Web
 	webapp.GetAction("/config", controller.actionServeClusterConfig)
 	webapp.GetAction("/nodeip", controller.actionReserveNodeIP)
 	webapp.DeleteAction("/nodeip", controller.actionReleaseNodeIP)
-	webapp.GetAction("/internalip", controller.actionReserveInternalIP)
-	webapp.DeleteAction("/internalip", controller.actionReleaseInternalIP)
 	webapp.PostAction("/node", controller.actionNodeStarted)
 	webapp.DeleteAction("/node", controller.actionNodeStopped)
 	webapp.DeleteAction("/masters", controller.actionGetMasters)
@@ -660,29 +658,6 @@ func (this localControllerDelegate) actionServeClusterConfig(context *webapp.Req
 	return nil
 }
 
-func (this localControllerDelegate) actionReserveInternalIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	master := util.ParseBool(context.GetQueryParameter("master"))
-	ip := this.ReserveInternalIP(master)
-	if ip == "" {
-		writer.WriteHeader(http.StatusNotFound)
-		return nil
-	}
-	writer.Write([]byte(ip))
-	writer.Header().Set("Content-Type", "text/plain")
-	writer.WriteHeader(http.StatusOK)
-	return nil
-}
-func (this localControllerDelegate) actionReleaseInternalIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	address := context.GetQueryParameter("address")
-	if address == "" {
-		writer.Write([]byte("Parameter 'address' missing."))
-		writer.WriteHeader(http.StatusBadRequest)
-		return nil
-	}
-	this.ReleaseInternalIP(address)
-	writer.WriteHeader(http.StatusOK)
-	return nil
-}
 func (this localControllerDelegate) actionReserveNodeIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	master := util.ParseBool(context.GetQueryParameter("master"))
 	ip := this.ReserveNodeIP(master)
@@ -695,6 +670,7 @@ func (this localControllerDelegate) actionReserveNodeIP(context *webapp.RequestC
 	writer.WriteHeader(http.StatusOK)
 	return nil
 }
+
 func (this localControllerDelegate) actionReleaseNodeIP(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	address := context.GetQueryParameter("address")
 	if address == "" {

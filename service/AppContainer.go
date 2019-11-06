@@ -78,7 +78,7 @@ func Start() {
 
 func createValidator() *validator.Validate {
 	val := validator.New()
-	val.RegisterStructValidation(vagrantNodeValidation, VagrantNode{})
+	val.RegisterStructValidation(clusterNodeConfigValidation, ClusterNodeConfig{})
 	val.RegisterStructValidation(vagrantConfig, VagrantConfig{})
 	val.RegisterStructValidation(configValidation, SystemConfiguration{})
 	return val
@@ -110,8 +110,8 @@ func configValidation(sl validator.StructLevel) {
 	}
 }
 
-func vagrantNodeValidation(sl validator.StructLevel) {
-	config := sl.Current().Interface().(VagrantNode)
+func clusterNodeConfigValidation(sl validator.StructLevel) {
+	config := sl.Current().Interface().(ClusterNodeConfig)
 	if config.NodeType != Master && config.NodeType != Worker {
 		sl.ReportError(config.NodeType, "NodeType", "IsMaster", "NodeType must be either Master or Worker", "")
 	}

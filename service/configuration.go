@@ -69,6 +69,7 @@ func NodeNetType_Values() []VMNetType {
 
 type LocalHostConfig struct {
 	NetHostInterface string `validate:"required"`
+	NetHostname      string `validate:"required"`
 	NetHostIP        string `validate:"required"`
 }
 
@@ -87,48 +88,50 @@ type ClusterControllerConnection struct {
 type ClusterConfig struct {
 	ClusterId            string `validate:"required"`
 	ClusterCredentials   string
-	ClusterPodCIDR       string    `validate:"required"`
-	ClusterServiceDomain string    `validate:"required"`
-	ClusterVMNet         VMNetType `validate:"required"`
-	ClusterControlPlane  string
-	ClusterMasters       string
-	ClusterMasterApiPort int
+	ClusterPodCIDR       string `validate:"required"`
+	ClusterServiceDomain string `validate:"required"`
+	// The net integration of the nodes with their hosts
+	ClusterVMNet VMNetType `validate:"required"`
+	// The internal network, if NAT is used,or the external node network, if Bridge networking is used.
 	ClusterNetCIDR       string `validate:"required"`
+	ClusterControlPlane  string
+	ClusterMasterAddress string
+	ClusterMasterApiPort int
+	ClusterAllWorkers    []ClusterNodeConfig
+	ClusterAllMasters    []ClusterNodeConfig
 	ClusterToken         string
 }
 
-type ClusterNodeConfig struct {
-	NodeName       string   `validate:"required"` // node
-	NodeType       NodeType `validate:"required"`
-	NodeIP         string
-	NodeMemory     int `validate:"required,gte=1028"` // 2048
-	NodeCPU        int `validate:"required,gte=1"`    // 2
-	IsJoiningNode  bool
-	NodeBox        string `validate:"required"` // ubuntu/xenial64, centos/7
-	NodeBoxVersion string `validate:"required"` // 20180831.0.0
+// The primary master, if existing.
+func (this ClusterConfig) PrimaryMaster() *ClusterNodeConfig {
+	if len(this.ClusterAllMasters) > 0 {
+		return &this.ClusterAllMasters[0]
+	}
+	return nil
 }
 
-//func (this *NetConfig) init(config *SystemConfiguration) *NetConfig {
-//	this.MasterController = config.MasterController
-//	this.NetUPnPPort = config.NetUPnPPort
-//	this.NetMulticastEnabled = config.NetMulticastEnabled
-//	return this
-//}
-//
-//func (this *ClusterConfig) init(config *SystemConfiguration) *ClusterConfig {
-//	this.ClusterId = config.ClusterLogin.ClusterId
-//	this.ClusterCredentials = config.ClusterLogin.ClusterCredentials
-//	if config.ClusterConfig != nil {
-//		this.ClusterNetCIDR = config.ClusterConfig.ClusterNetCIDR
-//		this.ClusterServiceDomain = config.ClusterConfig.ClusterServiceDomain
-//		this.ClusterPodCIDR = config.ClusterConfig.ClusterPodCIDR
-//		this.ClusterVMNet = config.ClusterConfig.ClusterVMNet
-//		this.ClusterCredentials = config.ClusterConfig.ClusterCredentials
-//		this.ClusterControlPlane = config.ClusterConfig.Controller.Host
-//		this.ClusterMasters = config.ClusterConfig.ClusterMasters
-//	}
-//	return this
-//}
+// All configured masters.
+func (this ClusterConfig) AllMasters() []ClusterNodeConfig {
+	return this.ClusterAllMasters
+}
+
+// All configured workers.
+func (this ClusterConfig) AllWorkers() []ClusterNodeConfig {
+	return this.ClusterAllWorkers
+}
+
+type ClusterNodeConfig struct {
+	NodeName           string   `validate:"required"` // node
+	NodeType           NodeType `validate:"required"`
+	NodeNetType        VMNetType
+	NodeAddress        string
+	NodeAdressInternal string
+	NodeMemory         int `validate:"required,gte=1028"` // 2048
+	NodeCPU            int `validate:"required,gte=1"`    // 2
+	IsJoiningNode      bool
+	NodeBox            string `validate:"required"` // ubuntu/xenial64, centos/7
+	NodeBoxVersion     string `validate:"required"` // 20180831.0.0
+}
 
 type SystemConfiguration struct {
 	Id string `validate:"required", json:"id"`
@@ -175,6 +178,7 @@ func InitConfig() *SystemConfiguration {
 		LocalHostConfig: LocalHostConfig{
 			NetHostInterface: netutil.GetDefaultInterface().Name,
 			NetHostIP:        netutil.GetDefaultIP().String(),
+			NetHostname:      hostname(),
 		},
 		NetConfig: NetConfig{
 			NetMulticastEnabled: true,
@@ -190,7 +194,7 @@ func (config *SystemConfiguration) InitMasterNode(primary bool) *ClusterNodeConf
 		config.MasterNode = &ClusterNodeConfig{
 			NodeName:       "Master",
 			NodeType:       Master,
-			NodeIP:         "",
+			NodeAddress:    "",
 			NodeMemory:     2048,
 			NodeCPU:        2,
 			IsJoiningNode:  !primary,
@@ -206,7 +210,7 @@ func (config *SystemConfiguration) InitWorkerNode() *ClusterNodeConfig {
 		config.WorkerNode = &ClusterNodeConfig{
 			NodeName:       "Worker",
 			NodeType:       Worker,
-			NodeIP:         "",
+			NodeAddress:    "",
 			NodeMemory:     2048,
 			NodeCPU:        2,
 			IsJoiningNode:  true,
@@ -225,8 +229,9 @@ func (config *SystemConfiguration) InitControllerConfig() *ClusterConfig {
 			ClusterPodCIDR:       "172.16.0.0/16",
 			ClusterServiceDomain: "cluster.local",
 			ClusterVMNet:         NAT,
-			ClusterControlPlane:  hostname(),
-			ClusterMasters:       "",
+			ClusterControlPlane:  "",
+			ClusterAllMasters:    []ClusterNodeConfig{},
+			ClusterAllWorkers:    []ClusterNodeConfig{},
 			ClusterMasterApiPort: 6443,
 			ClusterNetCIDR:       "192.168.99.0/24",
 			ClusterToken:         "",

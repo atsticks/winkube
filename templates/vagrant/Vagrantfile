@@ -16,17 +16,33 @@
 # vi: set ft=ruby :
 
 servers = [
-{{range .NodeConfigs}}
+{{if .MasterConfig}}
+{{with .MasterConfig}}
         {
-            :name => "{{.Name}}",
-            {{if eq .NodeType.String "MasterNode"}}:type => "master"{{else}}:type => "worker"{{end}},
-            :box => "{{.Box}}",
-            :box_version => "{{.BoxVersion}}",
-            :ip => "{{.Ip}}",
-            :mem => "{{.Memory}}",
-            :cpu => "{{.Cpu}}",
-            :network => "{{.NetType}}"
+            :name => "{{.NodeName}}",
+            :type => "master",
+            :box => "{{.NodeBox}}",
+            :box_version => "{{.NodeBoxVersion}}",
+            :ip => "{{.NodeAddressInternal}}",
+            :mem => "{{.NodeMMemory}}",
+            :cpu => "{{.NodeMCpu}}",
+            :network => "{{.NodeNetType.String}}"
         },
+{{end}}
+{{end}}
+{{if .WorkerConfig}}
+{{with .WorkerConfig}}
+        {
+            :name => "{{.NodeName}}",
+            :type => "worker",
+            :box => "{{.NodeBox}}",
+            :box_version => "{{.NodeBoxVersion}}",
+            :ip => "{{.NodeAddressInternal}}",
+            :mem => "{{.NodeMMemory}}",
+            :cpu => "{{.NodeMCpu}}",
+            :network => "{{.NodeNetType.String}}"
+        },
+{{end}}
 {{end}}
 ]
 
@@ -140,7 +156,12 @@ $configureWorker = <<-SCRIPT
     echo "Starting Kubernetes Worker..."
     echo "Joining Kubernetes cluster..."
     # Join cluster, file should be mapped from host
-    sudo kubeadm join {{.PublicMasterIp}} {{.MasterToken}}
+    {{ if .IsLocalController}}
+    chmod +x /home/vagrant/token/kubeadm_join_cmd.sh
+    sh /home/vagrant/token/kubeadm_join_cmd.sh
+    {{else}}
+    sudo kubeadm join {{.PublicMaster}} {{.MasterToken}}
+    {{end}}
     # chmod +x /home/vagrant/token/kubeadm_join_cmd.sh
     # sh /home/vagrant/token/kubeadm_join_cmd.sh
     # sudo kubeadm join $some_ip:6443 --token $some_token --discovery-token-ca-cert-hash $some_hash

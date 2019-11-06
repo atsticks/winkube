@@ -66,7 +66,7 @@ func (this Action) CompleteWithMessage(message string) {
 	(*GetActionManager()).CompleteWithMessage(this.Id, message)
 }
 
-func (this Action) CompleteWitError(err error) {
+func (this Action) CompleteWithError(err error) {
 	(*GetActionManager()).CompleteWithError(this.Id, err)
 }
 
