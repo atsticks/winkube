@@ -37,6 +37,7 @@ type VagrantConfig struct {
 	HostIp            string    `validate:"required"`
 	NetType           VMNetType `validate:"required"`
 	IsLocalMaster     bool
+	IsLocalController bool
 	PublicMaster      string
 	MasterToken       string
 }
@@ -184,7 +185,7 @@ func (this *nodeManager) ConfigureNodes(systemConfig SystemConfiguration, cluste
 		action.CompleteWithError(err)
 		return action
 	}
-	actionManager.CompleteWithMessage(action.Id, "Init Node: Vagrantfile generated.\n")
+	action.CompleteWithMessage("Init Node: Vagrantfile generated.\n")
 	return action
 }
 
@@ -220,6 +221,7 @@ func createVagrantConfig(systemConfiguration SystemConfiguration, clusterConfig 
 		MasterConfig:      *systemConfiguration.MasterNode,
 		WorkerConfig:      *systemConfiguration.WorkerNode,
 		IsLocalMaster:     systemConfiguration.IsPrimaryMaster(),
+		IsLocalController: systemConfiguration.IsControllerNode(),
 		MasterToken:       clusterConfig.ClusterToken,
 	}
 	return config

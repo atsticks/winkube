@@ -162,24 +162,39 @@ func (c *localController) Start(config *SystemConfiguration) error {
 	if !util.CheckAndLogError("Failed to configure local nodes.", err) {
 		return err
 	}
+	var l netutil.ServiceListener = *c
+	(*c.serviceRegistry).Listen(&l)
 	return nil
+}
+
+func (c localController) ServiceReceived(service netutil.Service) {
+	node := nodeFromService(service)
+	cluster := c.GetOrCreateClusterById(node.ClusterId)
+	switch node.NodeType {
+	case Master:
+		if !util.Exists(cluster.Masters, node) {
+			cluster.Workers = append(cluster.Masters, *node)
+		}
+	case Worker:
+		if !util.Exists(cluster.Workers, node) {
+			cluster.Workers = append(cluster.Workers, *node)
+		}
+	case Controller:
+		cluster.Controller = node
+	}
 }
 
 func (this *localController) configureMaster(configuration *SystemConfiguration) {
 	configuration.MasterNode.NodeNetType = configuration.ControllerConfig.ClusterVMNet
-	if configuration.ControllerConfig.ClusterVMNet == Bridged {
+	if configuration.ControllerConfig.ClusterVMNet == NAT {
 		configuration.MasterNode.NodeAddress = (*this.controllerDelegate).ReserveNodeIP(true)
 		configuration.MasterNode.NodeAdressInternal = configuration.MasterNode.NodeAddress
-	} else if configuration.ControllerConfig.ClusterVMNet == NAT {
+	} else if configuration.ControllerConfig.ClusterVMNet == Bridged {
 		configuration.MasterNode.NodeAddress = configuration.LocalHostConfig.NetHostname
 		configuration.MasterNode.NodeAdressInternal = (*this.controllerDelegate).ReserveNodeIP(true)
 	} else {
 		panic("Unsupported net type found")
 	}
-	//configuration.ControllerConfig.ClusterAllMasters = append(configuration.ControllerConfig.ClusterAllMasters, *configuration.MasterNode)
-	//if configuration.IsPrimaryMaster(){
-	//	configuration.ControllerConfig.ClusterMasterAddress = configuration.MasterNode.NodeAddress
-	//}
 }
 func (this *localController) configureWorker(configuration *SystemConfiguration) {
 	configuration.WorkerNode.NodeNetType = configuration.ControllerConfig.ClusterVMNet
@@ -192,7 +207,6 @@ func (this *localController) configureWorker(configuration *SystemConfiguration)
 	} else {
 		panic("Unsupported net type found")
 	}
-	//configuration.ControllerConfig.ClusterAllWorkers = append(configuration.ControllerConfig.ClusterAllWorkers, *configuration.WorkerNode)
 }
 
 func (c *localController) ReserveNodeIP(master bool) string {
@@ -213,11 +227,23 @@ func (c *localController) ensureRunning() {
 }
 
 func (c *localController) DrainNode(node Node) {
-	panic("implement me")
+	cluster := c.GetClusterById(node.ClusterId)
+	if cluster != nil {
+		controller := cluster.Controller
+		if controller != nil {
+			c.execRemote(controller, "kubectl drain node "+node.Name)
+		}
+	}
 }
 
 func (c *localController) CordonNode(node Node) {
-	panic("implement me")
+	cluster := c.GetClusterById(node.ClusterId)
+	if cluster != nil {
+		controller := cluster.Controller
+		if controller != nil {
+			c.execRemote(controller, "kubectl cordon node "+node.Name)
+		}
+	}
 }
 
 func (c *localController) IsRunning() bool {
@@ -321,13 +347,20 @@ func (this *localController) GetKnownClusters() []Cluster {
 	return clusters
 }
 
-func (this *localController) GetClusterByName(clusterName string) *Cluster {
-	return this.knownClusters[clusterName]
+func (this *localController) GetOrCreateClusterById(clusterId string) *Cluster {
+	cluster := this.knownClusters[clusterId]
+	if cluster == nil {
+		cluster = &Cluster{
+			Masters: []Node{},
+			Workers: []Node{},
+		}
+	}
+	return cluster
 }
 
-func (this *localController) UpdateAndGetClusterByName(clusterName string) *Cluster {
+func (this *localController) UpdateAndGetClusterById(clusterName string) *Cluster {
 	// TODO perform update
-	return this.GetClusterByName(clusterName)
+	return this.GetClusterById(clusterName)
 }
 
 func (this *localController) updateService(service netutil.Service) error {
@@ -338,6 +371,11 @@ func (this *localController) updateService(service netutil.Service) error {
 	}
 	cluster.registerService(service)
 	return nil
+}
+
+// Execute the given command on the (controller) node given.
+func (c *localController) execRemote(node *Node, command string) {
+	panic("execRemote not implemented!")
 }
 
 // A remote ClusterControlPane is an passive management component that delegates cluster management to the
@@ -667,7 +705,6 @@ func (this localControllerDelegate) actionReserveNodeIP(context *webapp.RequestC
 	}
 	writer.Write([]byte(ip))
 	writer.Header().Set("Content-Type", "text/plain")
-	writer.WriteHeader(http.StatusOK)
 	return nil
 }
 
@@ -679,7 +716,6 @@ func (this localControllerDelegate) actionReleaseNodeIP(context *webapp.RequestC
 		return nil
 	}
 	this.ReleaseNodeIP(address)
-	writer.WriteHeader(http.StatusOK)
 	return nil
 }
 func (this localControllerDelegate) actionNodeStarted(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
@@ -716,7 +752,6 @@ func (this localControllerDelegate) actionNodeStopped(context *webapp.RequestCon
 		return nil
 	}
 	this.clusterState.removeNode(node)
-	writer.WriteHeader(http.StatusOK)
 	return nil
 }
 func (this localControllerDelegate) actionGetMasters(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
@@ -727,7 +762,6 @@ func (this localControllerDelegate) actionGetMasters(context *webapp.RequestCont
 	}
 	writer.Write(data)
 	writer.Header().Set("Content-Type", "application/json")
-	writer.WriteHeader(http.StatusOK)
 	return nil
 }
 func (this localControllerDelegate) actionGetWorkers(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
@@ -738,7 +772,6 @@ func (this localControllerDelegate) actionGetWorkers(context *webapp.RequestCont
 	}
 	writer.Write(data)
 	writer.Header().Set("Content-Type", "application/json")
-	writer.WriteHeader(http.StatusOK)
 	return nil
 }
 

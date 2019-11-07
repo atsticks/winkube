@@ -23,9 +23,9 @@ servers = [
             :type => "master",
             :box => "{{.NodeBox}}",
             :box_version => "{{.NodeBoxVersion}}",
-            :ip => "{{.NodeAddressInternal}}",
-            :mem => "{{.NodeMMemory}}",
-            :cpu => "{{.NodeMCpu}}",
+            :ip => "{{.NodeAdressInternal}}",
+            :mem => "{{.NodeMemory}}",
+            :cpu => "{{.NodeCPU}}",
             :network => "{{.NodeNetType.String}}"
         },
 {{end}}
@@ -37,9 +37,9 @@ servers = [
             :type => "worker",
             :box => "{{.NodeBox}}",
             :box_version => "{{.NodeBoxVersion}}",
-            :ip => "{{.NodeAddressInternal}}",
-            :mem => "{{.NodeMMemory}}",
-            :cpu => "{{.NodeMCpu}}",
+            :ip => "{{.NodeAdressInternal}}",
+            :mem => "{{.NodeMemory}}",
+            :cpu => "{{.NodeCPU}}",
             :network => "{{.NodeNetType.String}}"
         },
 {{end}}
@@ -118,8 +118,7 @@ SCRIPT
 
 $configureMaster = <<-SCRIPT
     echo "Starting Kubernetes master..."
-    IP_ADDR=`ifconfig enp0s8 | grep Mask | awk '{print $2}'| cut -f2 -d:`
-    kubeadm init --apiserver-advertise-address=$(IP_ADDR) --pod-network-cidr={{.PodNetCIDR}} {{ if .NetCIDR}}--service-cidr={{.NetCIDR}} {{end}} --apiserver-bind-port={{.ApiServerBindPort}} --service-dns-domain={{.ServiceDNSDomain}}
+    kubeadm init --apiserver-advertise-address={{.MasterConfig.NodeAddressInternal}} --pod-network-cidr={{.PodNetCIDR}} {{ if .NetCIDR}}--service-cidr={{.NetCIDR}} {{end}} --apiserver-bind-port={{.ApiServerBindPort}} --service-dns-domain={{.ServiceDNSDomain}}
 
     echo "Initializing kubectl..."
     # copying credentials to regular user - vagrant
@@ -162,10 +161,6 @@ $configureWorker = <<-SCRIPT
     {{else}}
     sudo kubeadm join {{.PublicMaster}} {{.MasterToken}}
     {{end}}
-    # chmod +x /home/vagrant/token/kubeadm_join_cmd.sh
-    # sh /home/vagrant/token/kubeadm_join_cmd.sh
-    # sudo kubeadm join $some_ip:6443 --token $some_token --discovery-token-ca-cert-hash $some_hash
-
     echo "Kubernetes worker started."
 SCRIPT
 
