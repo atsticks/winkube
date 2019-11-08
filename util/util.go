@@ -99,9 +99,9 @@ func FileExists(name string) bool {
 /**
  * Runs an OS command.
  */
-func RunCommand(description string, command string, args string) (*exec.Cmd, io.ReadCloser, error) {
+func RunCommand(description string, command string, args ...string) (*exec.Cmd, io.ReadCloser, error) {
 	fmt.Printf(description)
-	cmd := exec.Command(command, args)
+	cmd := exec.Command(command, args[:]...)
 	cmdReader, err := cmd.StdoutPipe()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error creating StdoutPipe for Cmd: "+command, err)

@@ -142,7 +142,7 @@ func StopAction(context *webapp.RequestContext, writer http.ResponseWriter) *web
 }
 
 func NodeConsoleAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	cmd := exec.Command("cmd", "/C", "start", "vagrant", "ssh")
+	cmd := exec.Command("cmd", "/C", "start", "vagrant", "ssh", Container().Config.MasterNode.NodeName)
 	err := cmd.Run()
 	if err != nil {
 		log.Panic("Cannopt open console...", err)

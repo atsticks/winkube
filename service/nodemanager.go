@@ -94,36 +94,40 @@ func (this *nodeManager) GetServices() []netutil.Service {
 	var result []netutil.Service
 	if this.config.Ready() {
 		if this.config.IsControllerNode() {
+			var controllerType = "remote-controller"
+			if this.config.IsControllerNode() {
+				controllerType = "local-controller"
+			}
 			result = append(result, netutil.Service{
 				AdType:   WINKUBE_ADTYPE,
-				Id:       this.config.Id,
-				Location: this.config.NetHostname + ":9999",
-				Service:  "Controller:" + this.config.ClusterId(),
+				Id:       this.config.Id + "-C",
+				Location: "http://" + this.config.NetHostname + ":9999/cluster",
+				Service:  "Controller:" + this.config.ClusterId() + ":" + controllerType,
 				Version:  WINKUBE_VERSION,
 				Server:   util.RuntimeInfo(),
-				MaxAge:   5,
+				MaxAge:   30,
 			})
 		}
 		if this.config.IsMasterNode() {
 			result = append(result, netutil.Service{
 				AdType:   WINKUBE_ADTYPE,
-				Id:       this.config.Id,
-				Location: this.config.MasterNode.NodeAddress + ":9999",
-				Service:  "Master:" + this.config.ClusterId(),
+				Id:       this.config.Id + "-M",
+				Location: "http://" + this.config.NetHostname + ":9999/master",
+				Service:  "Master:" + this.config.ClusterId() + ":" + this.config.MasterNode.NodeName,
 				Version:  WINKUBE_VERSION,
 				Server:   util.RuntimeInfo(),
-				MaxAge:   5,
+				MaxAge:   30,
 			})
 		}
 		if this.config.IsWorkerNode() {
 			result = append(result, netutil.Service{
 				AdType:   WINKUBE_ADTYPE,
-				Id:       this.config.Id,
-				Location: this.config.WorkerNode.NodeAddress + ":9999",
-				Service:  "Master:" + this.config.ClusterId(),
+				Id:       this.config.Id + "-W",
+				Location: "http://" + this.config.NetHostname + ":9999/worker",
+				Service:  "Worker:" + this.config.ClusterId() + ":" + this.config.WorkerNode.NodeName,
 				Version:  WINKUBE_VERSION,
 				Server:   util.RuntimeInfo(),
-				MaxAge:   5,
+				MaxAge:   30,
 			})
 		}
 	}
@@ -136,10 +140,10 @@ func (this *nodeManager) DestroyNodes() *Action {
 	action := actionManager.StartAction("Destroy nodes")
 	defer actionManager.Complete(action.Id)
 	if util.FileExists("Vagrantfile") {
-		_, cmdReader, err := util.RunCommand("Stopping any running instances...", "vagrant", "-f destroy")
+		_, cmdReader, err := util.RunCommand("Stopping any running instances...", "vagrant", "destroy", "-f")
 		if util.CheckAndLogError("Destroy Node: vagrant failed", err) {
-			fmt.Println("vagrant -f destroy")
-			actionManager.LogAction(action.Id, "vagrant -f destroy\n")
+			fmt.Println("vagrant destroy -f ")
+			actionManager.LogAction(action.Id, "vagrant destroy -f\n")
 			scanner := bufio.NewScanner(cmdReader)
 			for scanner.Scan() {
 				text := (scanner.Text())
@@ -275,7 +279,7 @@ func (this *nodeManager) StopNodes() *Action {
 	Log().Debug("Cleaning service registry...")
 	(*this.serviceRegistry).RemoveServices("NodeManager")
 	if util.FileExists("Vagrantfile") {
-		_, cmdReader, err := util.RunCommand("Stopping any running instances...", "vagrant", "halt")
+		_, cmdReader, err := util.RunCommand("Stopping any running instances...", "vagrant", "-f", "halt")
 		if util.CheckAndLogError("Stop Nodes: Starting vagrant failed", err) {
 			fmt.Println("vagrant halt")
 			actionManager.LogAction(action.Id, "vagrant halt\n")
@@ -300,7 +304,7 @@ func (this *nodeManager) DestroyNode(name string) *Action {
 	action := actionManager.StartAction("Destroy node: " + name)
 	go func() {
 		if util.FileExists("Vagrantfile") {
-			_, cmdReader, err := util.RunCommand("Stopping node: "+name+"...", "vagrant", "-f destroy "+name)
+			_, cmdReader, err := util.RunCommand("Stopping node: "+name+"...", "vagrant", "-f", "destroy", name)
 			if util.CheckAndLogError("Destroy Node: vagrant error occurred.", err) {
 				fmt.Println("vagrant -f destroy " + name)
 				actionManager.LogAction(action.Id, "vagrant -f destroy "+name+"\n")

@@ -16,8 +16,8 @@ package service
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"sort"
 	"time"
 )
@@ -76,6 +76,14 @@ func (this Action) LogAction(message string) {
 
 func (this Action) LogActionLn(message string) {
 	this.LogAction(message + "\n")
+}
+
+func (this Action) OnErrorComplete(err error) bool {
+	if err != nil {
+		this.CompleteWithError(err)
+		return true
+	}
+	return false
 }
 
 type ActionManager interface {
@@ -141,7 +149,7 @@ func (this *actionManager) LogAction(id string, log string) *Action {
 	a := this.runningActions[id]
 	if a != nil {
 		if a.Finished() {
-			logrus.Error("Cannot log action " + a.Command + ": already finished.")
+			fmt.Printf("Cannot log action " + a.Command + ": already finished.")
 		}
 		a.log.WriteString(log)
 	}
@@ -158,7 +166,7 @@ func (this *actionManager) CompleteWithMessage(id string, message string) *Actio
 	if a != nil {
 		if a.Finished() {
 			if message != "" {
-				Log().Warn("Logging a message to a already completed action: " + a.Command + " - " + message)
+				fmt.Printf("Logging a message to a already completed action: " + a.Command + " - " + message)
 			}
 			return a
 		}
@@ -175,6 +183,10 @@ func (this *actionManager) CompleteWithError(id string, err error) *Action {
 	now := time.Now()
 	a := this.runningActions[id]
 	if a != nil {
+		if a.Finished() {
+			fmt.Printf("Completion with error %v, but action is already finished %v(%v)", err, a.Command, a.Id)
+			return a
+		}
 		a.log.WriteString(err.Error() + "\n")
 		delete(this.runningActions, id)
 		a.FinishedAt = &now

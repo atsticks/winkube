@@ -122,8 +122,8 @@ func CreateServiceRegistry(advertisementType string) *ServiceRegistry {
 
 // Access the host part of the Location field.
 func (this Service) Host() string {
-	parts := strings.Split(this.Location, ":")
-	return parts[0]
+	url := util2.ParseURL(this.Location)
+	return url.Hostname()
 }
 
 // Access the port part of the Location field.
@@ -268,16 +268,20 @@ func (this *serviceRegistry) Stop() {
 func (this *serviceRegistry) keepAliveLoop() {
 	this.advertizing = true
 	for this.advertizing {
+		usedAdvertisers := []string{}
 		for providerId, services := range this.services {
 			log.Debug(fmt.Sprintf("[SSDP] Advertizing services for provider: %v ...", providerId))
 			for _, service := range services {
-				usedAdvertisers := []string{}
-				advertizer, err := ssdp.Advertise(service.ST(), service.USN(), service.Location, service.Server,
-					service.MaxAge)
-				if err != nil {
-					log.Fatal(err)
+				advertizer := this.advertizers[service.USN()]
+				if advertizer == nil {
+					var err error
+					advertizer, err = ssdp.Advertise(service.ST(), service.USN(), service.Location, service.Server,
+						service.MaxAge)
+					if err != nil {
+						log.Fatal(err)
+					}
+					this.advertizers[service.USN()] = advertizer
 				}
-				this.advertizers[service.USN()] = advertizer
 				usedAdvertisers = append(usedAdvertisers, service.USN())
 				if this.verbose {
 					advertizer.Alive()
@@ -290,24 +294,24 @@ func (this *serviceRegistry) keepAliveLoop() {
 						"  Location : " + service.Location + "\n" +
 						"  MaxAge   : " + strconv.Itoa(service.MaxAge) + "\n}")
 				}
-				if len(usedAdvertisers) < len(this.advertizers) {
-					log.Info("Some services have been removed, sending bye message...")
-					unusedAdvertisers := map[string]ssdp.Advertiser{}
-					for key, adv := range this.advertizers {
-						if !util2.Exists(usedAdvertisers, key) {
-							unusedAdvertisers[key] = *adv
-						}
-					}
-					for key, adv := range unusedAdvertisers {
-						log.Info(fmt.Sprintf("Removing service: %s\n", key))
-						delete(this.advertizers, key)
-						adv.Bye()
-						adv.Close()
-					}
-				}
-				time.Sleep(15 * time.Second)
 			}
 		}
+		if len(usedAdvertisers) < len(this.advertizers) {
+			log.Info("Some services have been removed, sending bye message...")
+			unusedAdvertisers := map[string]ssdp.Advertiser{}
+			for key, adv := range this.advertizers {
+				if !util2.Exists(usedAdvertisers, key) {
+					unusedAdvertisers[key] = *adv
+				}
+			}
+			for key, adv := range unusedAdvertisers {
+				log.Info(fmt.Sprintf("Removing service: %s\n", key))
+				delete(this.advertizers, key)
+				adv.Bye()
+				adv.Close()
+			}
+		}
+		time.Sleep(15 * time.Second)
 	}
 }
 

@@ -26,6 +26,7 @@ require (
 	github.com/leodido/go-urn v1.2.0 // indirect
 	github.com/magiconair/properties v1.8.1
 	github.com/sirupsen/logrus v1.4.2
+	github.com/stretchr/testify v1.4.0
 	golang.org/x/net v0.0.0-20191007182048-72f939374954 // indirect
 	golang.org/x/sys v0.0.0-20190904154756-749cb33beabd // indirect
 	golang.org/x/text v0.3.2

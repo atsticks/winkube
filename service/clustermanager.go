@@ -13,8 +13,9 @@
 package service
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/winkube/service/netutil"
@@ -24,6 +25,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -47,40 +49,15 @@ type Node struct {
 }
 
 type Cluster struct {
-	ClusterConfig *ClusterConfig `json:"config"`
-	Controller    *Node          `json:"controllerConnection"`
-	Masters       []Node         `json:"masters"`
-	Workers       []Node         `json:"workers"`
-}
-
-func (this Cluster) addOrUpdateMaster(node Node) {
-	index := util.IndexOf(this.Masters, node)
-	if index < 0 {
-		this.Masters = append(this.Masters, node)
-	} else {
-		this.Masters[index] = node
-	}
-}
-func (this Cluster) addOrUpdateWorker(node Node) {
-	index := util.IndexOf(this.Workers, node)
-	if index < 0 {
-		this.Workers = append(this.Workers, node)
-	} else {
-		this.Workers[index] = node
-	}
+	ClusterConfig *ClusterConfig  `json:"config"`
+	Controller    *Node           `json:"controllerConnection"`
+	Masters       map[string]Node `json:"masters"`
+	Workers       map[string]Node `json:"workers"`
 }
 
 func (this Cluster) removeNode(node *Node) {
-	for index, n := range this.Workers {
-		if n.Id == node.Id {
-			this.Workers = remove(this.Workers, index)
-		}
-	}
-	for index, n := range this.Masters {
-		if n.Id == node.Id {
-			this.Masters = remove(this.Masters, index)
-		}
-	}
+	delete(this.Workers, node.Id)
+	delete(this.Masters, node.Id)
 }
 
 type ControllerDelegate interface {
@@ -131,6 +108,28 @@ func createLocalControllerNode(clusterId string, nodeId string) *Node {
 	return &cn
 }
 
+// This creates the cluster API application serving cluster data to other nodes.
+// This application is active only, if this node is configured as a cluster
+// controllerConnection.
+func createClusterManagerWebApp(controller *localControllerDelegate) *webapp.WebApplication {
+	webapp := webapp.CreateWebApp("cluster", "", language.English)
+	webapp.GetAction("/cluster/id", controller.actionClusterId)
+	webapp.GetAction("/cluster/known", actionKnownIds)
+	webapp.GetAction("/cluster", controller.actionServeClusterConfig)
+	webapp.GetAction("/cluster/state", actionClusterState)
+	webapp.GetAction("/cluster/nodeip", controller.actionReserveNodeIP)
+	webapp.DeleteAction("/cluster/nodeip", controller.actionReleaseNodeIP)
+	webapp.PostAction("/cluster/node", controller.actionNodeStarted)
+	webapp.DeleteAction("/cluster/node", controller.actionNodeStopped)
+	webapp.GetAction("/cluster/masters", controller.actionGetMasters)
+	webapp.GetAction("/cluster/workers", controller.actionGetWorkers)
+	webapp.GetAction("/master", actionMasterState)
+	webapp.GetAction("/worker", actionWorkerState)
+	webapp.GetAction("/master/exec", controller.actionMasterExecCommand)
+	webapp.GetAction("/worker/exec", controller.actionWorkerExecCommand)
+	return webapp
+}
+
 // The cluster manager is the proxy management component which connects this machine with the overall
 // controllerConnection. If the controllerConnection is locally, the this component also manages the controllerConnection
 // api which is used by other nodes.
@@ -168,17 +167,16 @@ func (c *localController) Start(config *SystemConfiguration) error {
 }
 
 func (c localController) ServiceReceived(service netutil.Service) {
+	if strings.Index(service.AdType, "winkube-org:") < 0 {
+		return
+	}
 	node := nodeFromService(service)
 	cluster := c.GetOrCreateClusterById(node.ClusterId)
 	switch node.NodeType {
 	case Master:
-		if !util.Exists(cluster.Masters, node) {
-			cluster.Workers = append(cluster.Masters, *node)
-		}
+		cluster.Masters[node.Id] = *node
 	case Worker:
-		if !util.Exists(cluster.Workers, node) {
-			cluster.Workers = append(cluster.Workers, *node)
-		}
+		cluster.Workers[node.Id] = *node
 	case Controller:
 		cluster.Controller = node
 	}
@@ -262,8 +260,8 @@ func (this *localController) startLocal(config *SystemConfiguration, nodedId str
 		clusterState = &Cluster{
 			ClusterConfig: config.ControllerConfig,
 			Controller:    createLocalControllerNode(config.ControllerConfig.ClusterId, nodedId),
-			Masters:       []Node{},
-			Workers:       []Node{},
+			Masters:       make(map[string]Node),
+			Workers:       make(map[string]Node),
 		}
 		this.knownClusters[config.ControllerConfig.ClusterId] = clusterState
 	} else {
@@ -351,8 +349,8 @@ func (this *localController) GetOrCreateClusterById(clusterId string) *Cluster {
 	cluster := this.knownClusters[clusterId]
 	if cluster == nil {
 		cluster = &Cluster{
-			Masters: []Node{},
-			Workers: []Node{},
+			Masters: make(map[string]Node),
+			Workers: make(map[string]Node),
 		}
 	}
 	return cluster
@@ -361,16 +359,6 @@ func (this *localController) GetOrCreateClusterById(clusterId string) *Cluster {
 func (this *localController) UpdateAndGetClusterById(clusterName string) *Cluster {
 	// TODO perform update
 	return this.GetClusterById(clusterName)
-}
-
-func (this *localController) updateService(service netutil.Service) error {
-	clusterId := getClusterId(service)
-	cluster, found := this.knownClusters[clusterId]
-	if !found {
-		return errors.New("Cluster not found: " + clusterId)
-	}
-	cluster.registerService(service)
-	return nil
 }
 
 // Execute the given command on the (controller) node given.
@@ -519,7 +507,7 @@ func (c *localControllerDelegate) Start() error {
 	Log().Info("Initializing controllerConnection api...")
 	router := mux.NewRouter()
 	clusterApiApp := createClusterManagerWebApp(c)
-	router.PathPrefix("/cluster").HandlerFunc(clusterApiApp.HandleRequest)
+	router.PathPrefix("/").HandlerFunc(clusterApiApp.HandleRequest)
 	c.server = &http.Server{Addr: "0.0.0.0:9999", Handler: router}
 	go c.listenHttp()
 	return nil
@@ -545,11 +533,19 @@ func (c *localControllerDelegate) GetClusterConfig() ClusterConfig {
 }
 
 func (c *localControllerDelegate) GetMasters() []Node {
-	return c.clusterState.Masters
+	result := []Node{}
+	for _, v := range c.clusterState.Masters {
+		result = append(result, v)
+	}
+	return result
 }
 
 func (c *localControllerDelegate) GetWorkers() []Node {
-	return c.clusterState.Workers
+	result := []Node{}
+	for _, v := range c.clusterState.Workers {
+		result = append(result, v)
+	}
+	return result
 }
 
 func (c *localControllerDelegate) ReserveNodeIP(master bool) string {
@@ -583,15 +579,33 @@ func (c *localControllerDelegate) Exec(command string) string {
 // Evaluates the cluster id as the right part of the WinKube service identifier:
 // e.g. 'master:myCluster01' results in 'myCluster01'
 func getClusterId(service netutil.Service) string {
-	// format: service:clusterId
-	return strings.TrimLeft(service.Service, ":")
+	// format: service:clusterId:version
+	splits := strings.Split(service.Service, ":")
+	return splits[1]
 }
 
 // Evaluates the service id as the left part of the WinKube service identifier:
 // e.g. 'master:myCluster01' results in 'master'
 func getServiceIdentifier(service netutil.Service) string {
-	// format: service:clusterId
-	return strings.TrimRight(service.Service, ":")
+	// format: service:clusterId:version
+	splits := strings.Split(service.Service, ":")
+	return splits[0]
+}
+
+// Evaluates the service id as the left part of the WinKube service identifier:
+// e.g. 'master:myCluster01' results in 'master'
+func getNodeName(service netutil.Service) string {
+	// format: service:clusterId:version
+	splits := strings.Split(service.Service, ":")
+	return splits[2]
+}
+
+// Evaluates the service id as the left part of the WinKube service identifier:
+// e.g. 'master:myCluster01' results in 'master'
+func getServiceVersion(service netutil.Service) string {
+	// format: service:clusterId:version
+	splits := strings.Split(service.Service, ":")
+	return splits[3]
 }
 
 // Evaluates the nodetype based on the current service identifier
@@ -608,33 +622,11 @@ func getNodeType(service netutil.Service) NodeType {
 	}
 }
 
-func (this Cluster) registerService(service netutil.Service) {
-	//// check, if already registered as node
-	Log().Debug("Checking if instance is a node...", service)
-	//for _, node := range this.Instances {
-	//	if service.Location == node.Host {
-	//		Container().Logger.Debug("Model is a known node: " + node.Name + "(" + node.Host + ")")
-	//		return
-	//	}
-	//}
-	//// check, if already registered as master
-	//Log().Debug("Checking if instance is a master...")
-	//for _, master := range this.Masters {
-	//	if service.Location == master.Host {
-	//		Container().Logger.Debug("Model is a known master: " + master.Name + "(" + master.Host + ")")
-	//		return
-	//	}
-	//}
-	//// add node to instance list, if not present.
-	//Log().Debug("Discovered new service: " + service.Service + "(" + service.Location + ")")
-	//existing := this.getNode(&service)
-	//if existing == nil {
-	//	Log().Debug("Adding service to service catalogue: %v...", service)
-	//	this.Instances = append(this.Instances, *Instance_fromService(service))
-	//} else {
-	//	updateInstance(existing, &service)
-	//}
-}
+//func (this Cluster) registerService(service netutil.Service) {
+//	//// check, if already registered as node
+//	Log().Debug("Checking if instance is a node...", service)
+//
+//}
 
 func (this Cluster) getNodeByService(service *netutil.Service) *Node {
 	return this.getNode(service.Id)
@@ -659,23 +651,7 @@ func hostname() string {
 	return hn
 }
 
-// This creates the cluster API application serving cluster data to other nodes.
-// This application is active only, if this node is configured as a cluster
-// controllerConnection.
-func createClusterManagerWebApp(controller *localControllerDelegate) *webapp.WebApplication {
-	webapp := webapp.CreateWebApp("cluster", "/cluster", language.English)
-	webapp.GetAction("/id", controller.actionClusterId)
-	webapp.GetAction("/catalog/knownids", actionKnownIds)
-	webapp.GetAction("/catalog/state", actionClusterState)
-	webapp.GetAction("/config", controller.actionServeClusterConfig)
-	webapp.GetAction("/nodeip", controller.actionReserveNodeIP)
-	webapp.DeleteAction("/nodeip", controller.actionReleaseNodeIP)
-	webapp.PostAction("/node", controller.actionNodeStarted)
-	webapp.DeleteAction("/node", controller.actionNodeStopped)
-	webapp.DeleteAction("/masters", controller.actionGetMasters)
-	webapp.DeleteAction("/workers", controller.actionGetWorkers)
-	return webapp
-}
+// Web application actions...
 
 func (this localControllerDelegate) actionClusterId(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	writer.Write([]byte(this.clusterState.ClusterConfig.ClusterId))
@@ -729,9 +705,9 @@ func (this localControllerDelegate) actionNodeStarted(context *webapp.RequestCon
 	err = json.Unmarshal(bodyBytes, node)
 	switch node.NodeType {
 	case Master:
-		this.clusterState.addOrUpdateMaster(node)
+		this.clusterState.Masters[node.Id] = node
 	case Worker:
-		this.clusterState.addOrUpdateWorker(node)
+		this.clusterState.Workers[node.Id] = node
 	case Controller:
 		// nothing todo
 	case UndefinedNode:
@@ -775,6 +751,125 @@ func (this localControllerDelegate) actionGetWorkers(context *webapp.RequestCont
 	return nil
 }
 
+func (this localControllerDelegate) actionMasterInfo(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	if !Container().Config.IsMasterNode() {
+		writer.Write([]byte("No master running."))
+		writer.WriteHeader(http.StatusNotFound)
+	}
+	result, returnCode := this.execCommand("vagrant", "status "+Container().Config.WorkerNode.NodeName, *Container().Config.WorkerNode)
+	if returnCode == http.StatusOK {
+		writer.Write(result)
+		writer.Header().Set("Content-Type", "application/json")
+	} else {
+		writer.Write(result)
+		writer.WriteHeader(returnCode)
+	}
+	return nil
+}
+
+func (this localControllerDelegate) actionWorkerInfo(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	if !Container().Config.IsWorkerNode() {
+		writer.Write([]byte("No worker running."))
+		writer.WriteHeader(http.StatusNotFound)
+	}
+	result, returnCode := this.execCommand("vagrant", "status "+Container().Config.WorkerNode.NodeName, *Container().Config.WorkerNode)
+	if returnCode == http.StatusOK {
+		writer.Write(result)
+		writer.Header().Set("Content-Type", "application/json")
+	} else {
+		writer.Write(result)
+		writer.WriteHeader(returnCode)
+	}
+	return nil
+}
+
+func (this localControllerDelegate) actionMasterExecCommand(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	command := context.GetParameter("cmd")
+	if command == "" {
+		writer.Write([]byte("No command passed."))
+		writer.WriteHeader(http.StatusBadRequest)
+	}
+	if Container().Config.IsMasterNode() {
+		result, returnCode := this.execCommand("vagrant", "ssh -c "+command, *Container().Config.WorkerNode)
+		if returnCode == http.StatusOK {
+			writer.Write(result)
+			writer.Header().Set("Content-Type", "application/json")
+		} else {
+			writer.Write(result)
+			writer.WriteHeader(returnCode)
+		}
+		return nil
+	} else {
+		result := make(map[string]string)
+		result["result"] = "No master configured"
+		result["command"] = command
+		result["exitCode"] = "-1"
+		json, _ := json.MarshalIndent(result, "", "  ")
+		writer.Write(json)
+		writer.Header().Set("Content-Type", "application/json")
+		return nil
+	}
+}
+
+func (this localControllerDelegate) actionWorkerExecCommand(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	command := context.GetParameter("cmd")
+	if command == "" {
+		writer.Write([]byte("No command passed."))
+		writer.WriteHeader(http.StatusBadRequest)
+	}
+	if Container().Config.IsWorkerNode() {
+		result, returnCode := this.execCommand("vagrant", "ssh -c "+command, *Container().Config.WorkerNode)
+		if returnCode == http.StatusOK {
+			writer.Write(result)
+			writer.Header().Set("Content-Type", "application/json")
+		} else {
+			writer.Write(result)
+			writer.WriteHeader(returnCode)
+		}
+		return nil
+	} else {
+		result := make(map[string]string)
+		result["result"] = "No worker configured"
+		result["command"] = command
+		result["exitCode"] = "-1"
+		json, _ := json.MarshalIndent(result, "", "  ")
+		writer.Write(json)
+		writer.Header().Set("Content-Type", "application/json")
+		return nil
+	}
+}
+
+func (this localControllerDelegate) execCommand(command string, args string, node ClusterNodeConfig) ([]byte, int) {
+	if command == "" {
+		return []byte("ERROR: No command passed."), http.StatusBadRequest
+	}
+	output, exitCode := this.execVagrantCommand("vagrant ssh -c \""+command+"\" "+node.NodeName, node)
+	if exitCode != 0 {
+		return []byte(output), http.StatusInternalServerError
+	}
+	result := make(map[string]string)
+	result["result"] = output
+	result["command"] = command
+	result["node"] = node.NodeName
+	result["address"] = node.NodeAddress
+	result["exitCode"] = strconv.Itoa(exitCode)
+	json, _ := json.MarshalIndent(result, "", "  ")
+	return json, http.StatusOK
+}
+
+func (this localControllerDelegate) execVagrantCommand(command string, node ClusterNodeConfig) (string, int) {
+	cmd, cmdReader, err := util.RunCommand("Execute remote command", "vagrant", "ssh", "-c", "\""+command+"\" ", node.NodeName)
+	if err != nil {
+		return "ERROR: '" + command + "' failed: " + err.Error(), -1
+	}
+	var buff bytes.Buffer
+	scanner := bufio.NewScanner(cmdReader)
+	for scanner.Scan() {
+		buff.WriteString(scanner.Text())
+	}
+	return string(buff.Bytes()), cmd.ProcessState.ExitCode()
+}
+
 func actionKnownIds(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	data, err := json.MarshalIndent((*Container().LocalController).GetKnownClusters(), "", "  ")
 	if err != nil {
@@ -788,21 +883,52 @@ func actionKnownIds(context *webapp.RequestContext, writer http.ResponseWriter) 
 }
 
 func actionClusterState(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	clusterId := context.GetQueryParameter("cluster")
-	var data []byte
-	var err error
-	localController := *Container().LocalController
-	if clusterId == "" {
-		data, err = json.MarshalIndent(localController.GetClusterById(localController.GetClusterId()), "", "  ")
+	result := make(map[string]string)
+	result["cluster"] = Container().Config.ClusterId()
+	result["timestamp"] = time.Now().String()
+	result["state"] = (*Container().LocalController).GetState()
+	json, _ := json.MarshalIndent(result, "", "  ")
+	writer.Write(json)
+	writer.Header().Set("Content-Type", "application/json")
+	return nil
+}
+
+func actionMasterState(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	if Container().Config.IsMasterNode() {
+		_, cmdReader, err := util.RunCommand("Get master status.", "vagrant", "status", Container().Config.MasterNode.NodeName)
+		if err != nil {
+			writer.Write([]byte("ERROR: vagrant status " + Container().Config.MasterNode.NodeName + "' failed: " + err.Error()))
+			writer.WriteHeader(http.StatusInternalServerError)
+		}
+		var buff bytes.Buffer
+		scanner := bufio.NewScanner(cmdReader)
+		for scanner.Scan() {
+			buff.WriteString(scanner.Text())
+		}
+		writer.Write(buff.Bytes())
 	} else {
-		data, err = json.MarshalIndent(localController.GetClusterById(clusterId), "", "  ")
+		writer.Write([]byte("ERROR: no master present on this node."))
+		writer.WriteHeader(http.StatusNotFound)
 	}
-	if err != nil {
-		writer.Write([]byte("Failed to serialize cluster state to JSON: " + err.Error()))
-		writer.WriteHeader(http.StatusInternalServerError)
+	return nil
+}
+
+func actionWorkerState(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
+	if Container().Config.IsWorkerNode() {
+		_, cmdReader, err := util.RunCommand("Get worker status.", "vagrant", "status", Container().Config.WorkerNode.NodeName)
+		if err != nil {
+			writer.Write([]byte("ERROR: vagrant status " + Container().Config.WorkerNode.NodeName + "' failed: " + err.Error()))
+			writer.WriteHeader(http.StatusInternalServerError)
+		}
+		var buff bytes.Buffer
+		scanner := bufio.NewScanner(cmdReader)
+		for scanner.Scan() {
+			buff.WriteString(scanner.Text())
+		}
+		writer.Write(buff.Bytes())
 	} else {
-		writer.Write(data)
-		writer.Header().Set("Content-Type", "application/json")
+		writer.Write([]byte("ERROR: no worker present on this node."))
+		writer.WriteHeader(http.StatusNotFound)
 	}
 	return nil
 }
@@ -822,6 +948,7 @@ func nodeFromService(s netutil.Service) *Node {
 		NodeType:  getNodeType(s),
 		ClusterId: getClusterId(s),
 		Endpoint:  s.Location,
+		Name:      getNodeName(s),
 	}
 }
 

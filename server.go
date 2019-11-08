@@ -23,7 +23,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/winkube/service"
 	"github.com/winkube/service/assert"
-	"github.com/winkube/util"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -59,33 +58,7 @@ func manageState() {
 				service.Container().CurrentStatus = service.APPSTATE_SETUP
 				action.CompleteWithMessage("New Mode applied: SETUP")
 			case service.APPSTATE_RUNNING:
-				action = actionManager.StartAction("Trying to switch to RUNNING Mode")
-				if config.Ready() {
-					service.Container().CurrentStatus = service.APPSTATE_STARTING
-					action.LogActionLn("Starting service registry...")
-					(*service.Container().ServiceRegistry).Start(config.NetConfig.NetMulticastEnabled, config.NetConfig.NetUPnPPort, strings.Split(config.NetConfig.MasterController, ","))
-					action.LogActionLn("Starting cluster controller...")
-					(*service.Container().LocalController).Start(config)
-					action.LogActionLn("Resetting nodes...")
-					(*service.Container().NodeManager).DestroyNodes()
-					action.LogActionLn("Configuring nodes...")
-					clusterConfig := (*service.Container().LocalController).GetClusterConfig()
-					assert.AssertNotNil(clusterConfig)
-					action := (*service.Container().NodeManager).ConfigureNodes(*config, clusterConfig, true)
-					if util.CheckAndLogError("Failed to configure the nodes", action.Error) {
-						log.Info("Starting nodes...")
-						action.LogActionLn("Starting nodes...")
-						(*service.Container().NodeManager).StartNodes()
-						log.Info("Registering services...")
-						service.Container().CurrentStatus = service.APPSTATE_RUNNING
-					} else {
-						service.Container().RequiredAppStatus = service.APPSTATE_SETUP
-						action.CompleteWithMessage("Cannot switch to a RUNNING state: config is not ready.")
-					}
-				} else {
-					service.Container().RequiredAppStatus = service.APPSTATE_SETUP
-					action.CompleteWithMessage("Cannot switch to a RUNNING state: config is not ready.")
-				}
+				switchToRunning(config)
 			case service.APPSTATE_IDLE:
 				if service.Container().CurrentStatus == service.APPSTATE_RUNNING {
 					action = actionManager.StartAction("Switch to IDLE Mode")
@@ -99,6 +72,61 @@ func manageState() {
 		}
 		time.Sleep(10 * time.Second)
 	}
+}
+
+func switchToRunning(config *service.SystemConfiguration) {
+	actionManager := *service.GetActionManager()
+	action := actionManager.StartAction("Trying to switch to RUNNING Mode")
+	defer action.Complete()
+	oldStatus := service.Container().CurrentStatus
+	if config.Ready() {
+		service.Container().CurrentStatus = service.APPSTATE_STARTING
+		action.LogActionLn("Starting service registry...")
+		(*service.Container().ServiceRegistry).Start(config.NetConfig.NetMulticastEnabled, config.NetConfig.NetUPnPPort, strings.Split(config.NetConfig.MasterController, ","))
+		action.LogActionLn("Starting cluster controller...")
+		err := (*service.Container().LocalController).Start(config)
+		if action.OnErrorComplete(err) {
+			log.Error("Starting local controller failed: " + err.Error())
+			resetToSetupStatus(oldStatus)
+			return
+		}
+		action.LogActionLn("Resetting nodes...")
+		resetAction := (*service.Container().NodeManager).DestroyNodes()
+		if action.OnErrorComplete(resetAction.Error) {
+			log.Error("Destrey nodes failed: " + resetAction.Error.Error())
+			resetToSetupStatus(oldStatus)
+			return
+		}
+		action.LogActionLn("Configuring nodes...")
+		clusterConfig := (*service.Container().LocalController).GetClusterConfig()
+		assert.AssertNotNil(clusterConfig)
+		configAction := (*service.Container().NodeManager).ConfigureNodes(*config, clusterConfig, true)
+		if !action.OnErrorComplete(configAction.Error) {
+			log.Error("Failed to configure the nodes: ", configAction.Error)
+			log.Info("Starting nodes...")
+			action.LogActionLn("Starting nodes...")
+			startNodesAction := (*service.Container().NodeManager).StartNodes()
+			if action.OnErrorComplete(startNodesAction.Error) {
+				log.Error("Starting nodes failed: " + startNodesAction.Error.Error())
+				resetToSetupStatus(oldStatus)
+				return
+			}
+			log.Info("Registering services...")
+			service.Container().CurrentStatus = service.APPSTATE_RUNNING
+		} else {
+			log.Error("Configure nodes failed: " + configAction.Error.Error())
+			resetToSetupStatus(oldStatus)
+			action.CompleteWithMessage("Cannot switch to a RUNNING state: config is not ready.")
+		}
+	} else {
+		action.CompleteWithMessage("Cannot switch to a RUNNING state: config is not ready.")
+		resetToSetupStatus(oldStatus)
+	}
+}
+
+func resetToSetupStatus(oldStatus service.AppStatus) {
+	service.Container().CurrentStatus = oldStatus
+	service.Container().RequiredAppStatus = service.APPSTATE_SETUP
 }
 
 // Opens the local browser with the setup application
