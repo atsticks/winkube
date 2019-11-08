@@ -118,7 +118,7 @@ SCRIPT
 
 $configureMaster = <<-SCRIPT
     echo "Starting Kubernetes master..."
-    kubeadm init --apiserver-advertise-address={{.MasterConfig.NodeAdressInternal}} --pod-network-cidr={{.PodNetCIDR}} {{ if .NetCIDR}}--service-cidr={{.NetCIDR}} {{end}} --apiserver-bind-port={{.ApiServerBindPort}} --service-dns-domain={{.ServiceDNSDomain}}
+    kubeadm init --apiserver-advertise-address={{.MasterConfig.NodeAdressInternal}} --apiserver-cert-extra-sans={{.MasterConfig.NodeAddress}} --pod-network-cidr={{.PodNetCIDR}} {{ if .NetCIDR}}--service-cidr={{.NetCIDR}} {{end}} --apiserver-bind-port={{.ApiServerBindPort}} --service-dns-domain={{.ServiceDNSDomain}}
 
     echo "Initializing kubectl..."
     # copying credentials to regular user - vagrant

@@ -135,9 +135,9 @@ func (this *nodeManager) GetServices() []netutil.Service {
 }
 
 func (this *nodeManager) DestroyNodes() *Action {
-	Log().Info("Destroy nodes...")
+	Log().Info("Destroy Nodes...")
 	actionManager := *GetActionManager()
-	action := actionManager.StartAction("Destroy nodes")
+	action := actionManager.StartAction("Destroy Nodes")
 	defer actionManager.Complete(action.Id)
 	if util.FileExists("Vagrantfile") {
 		_, cmdReader, err := util.RunCommand("Stopping any running instances...", "vagrant", "destroy", "-f")
@@ -168,8 +168,8 @@ func (this *nodeManager) ConfigureNodes(systemConfig SystemConfiguration, cluste
 	defer this.releaseIPsOnError(action, systemConfig)
 	this.config = &systemConfig
 	if !this.config.IsMasterNode() && !this.config.IsWorkerNode() {
-		// Only Controller will be started, no nodes!
-		actionManager.CompleteWithMessage(action.Id, "Configure Nodes: no nodes to be started.\n")
+		// Only Controller will be started, no Nodes!
+		actionManager.CompleteWithMessage(action.Id, "Configure Nodes: no Nodes to be started.\n")
 		return action
 	}
 	config := createVagrantConfig(systemConfig, clusterConfig)
@@ -238,7 +238,7 @@ func (this *nodeManager) StartNodes() *Action {
 	defer actionManager.Complete(action.Id)
 	if !this.config.IsWorkerNode() && !this.config.IsWorkerNode() {
 		// nothing to start
-		actionManager.CompleteWithMessage(action.Id, "Completed. No nodes to start.")
+		actionManager.CompleteWithMessage(action.Id, "Completed. No Nodes to start.")
 		return action
 	}
 	if util.FileExists("Vagrantfile") {

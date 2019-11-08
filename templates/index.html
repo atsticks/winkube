@@ -30,6 +30,29 @@
 <div class="container">
     <h1>{{ index .Messages "winkube.title"}}</h1>
     <p>{{ index .Messages "winkube.desc"}}</p>
+{{ with .Data.ClusterInfo}}
+    <table class="table table-sm table-bordered table-striped table-hover">
+        <thead class="thead-dark">
+        <tr>
+            <th scope="col" colspan="2">Cluster Membership</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+            <th scope="row" width="50%">{{ index $.Messages "cluster-id.label"}}</th>
+            <td><input type="text" readonly class="form-control-plaintext" value="{{.ClusterId}}"></td>
+        </tr>
+        <tr>
+            <th scope="row" width="50%">{{ index $.Messages "cluster-controller.label"}}</th>
+            <td><input type="text" readonly class="form-control-plaintext" value="{{.ClusterController}}"></td>
+        </tr>
+        <tr>
+            <th scope="row" width="50%">{{ index $.Messages "cluster-state.label"}}</th>
+            <td><pre>{{.ClusterState}}</pre></td>
+        </tr>
+        </tbody>
+    </table>
+{{end}}
 {{ with .Data.NodeInfo}}
     <table class="table table-sm table-bordered table-striped table-hover">
         <thead class="thead-dark">
@@ -39,52 +62,58 @@
         </thead>
         <tbody>
         <tr>
-            <th scope="row" width="50%">{{ index $.Messages "node-name.label"}}</th>
-            <td><input type="text" readonly class="form-control-plaintext" value="Master-1"></td>
+            <th scope="row" width="50%">{{ index $.Messages "instance-name.label"}}</th>
+            <td><input type="text" readonly class="form-control-plaintext" value="{{.InstanceName}}"></td>
         </tr>
         <tr>
-            <th scope="row" width="50%">{{ index $.Messages "node-type.label"}}</th>
-            <td><input type="text" readonly class="form-control-plaintext" value="MasterNode"></td>
+            <th scope="row" width="50%">{{ index $.Messages "instance-address.label"}}</th>
+            <td><input type="text" readonly class="form-control-plaintext" value="{{.InstanceIp}}"></td>
         </tr>
         <tr>
-            <th scope="row" width="50%">{{ index $.Messages "node-state.label"}}</th>
-            <td><input type="text" readonly class="form-control-plaintext" value="Running"></td>
+            <th scope="row" width="50%">{{ index $.Messages "instance-started.label"}}</th>
+            <td><input type="text" readonly class="form-control-plaintext" value="{{.StartedSince}}"></td>
         </tr>
         <tr>
             <th scope="row" width="50%">{{ index $.Messages "node-actions.label"}}</th>
-            <td><a href="/drain" class="btn btn-info" role="button">Drain</a> <a href="/cordon" class="btn btn-info" role="button">Cordon</a>
-                <a href="/console" class="btn btn-info" role="button">Console (ssh)</a>
-                <a href="/enter-setup" class="btn btn-info" role="button">Change Configuration</a></td>
+            <td><a href="/enter-setup" class="btn btn-info" role="button">Change Configuration</a></td></td>
         </tr>
         </tbody>
     </table>
-{{end}}
-{{ with .Data.ClusterInfo}}
+    {{range .Nodes}}
     <table class="table table-sm table-bordered table-striped table-hover">
         <thead class="thead-dark">
         <tr>
-            <th scope="col" colspan="2">Cluster Info</th>
+            <th scope="col" colspan="2">{{.NodeType.String}}</th>
         </tr>
         </thead>
         <tbody>
         <tr>
-            <th scope="row" width="50%">{{ index $.Messages "cluster-id.label"}}</th>
-            <td><input type="text" readonly class="form-control-plaintext" value="Test-Cluster"></td>
+            <th scope="row" width="50%">{{ index $.Messages "joining.label"}}</th>
+            <td><input type="text" readonly class="form-control-plaintext" value="{{.IsJoiningNode}}"></td>
         </tr>
         <tr>
-            <th scope="row" width="50%">{{ index $.Messages "cluster-masters.label"}}</th>
-            <td><input type="text" readonly class="form-control-plaintext" value="Master-1 (this), Master-2"></td>
+            <th scope="row" width="50%">{{ index $.Messages "cpu.label"}}</th>
+            <td><input type="text" readonly class="form-control-plaintext" value="{{.NodeCPU}}"></td>
         </tr>
         <tr>
-            <th scope="row" width="50%">{{ index $.Messages "cluster-state.label"}}</th>
-            <td><input type="text" readonly class="form-control-plaintext" value="Running"></td>
+            <th scope="row" width="50%">{{ index $.Messages "memory.label"}}</th>
+            <td><input type="text" readonly class="form-control-plaintext" value="{{.NodeMemory}}"></td>
         </tr>
         <tr>
-            <th scope="row" width="50%">{{ index $.Messages "cluster-actions.label"}}</th>
-            <td><a href="/start" class="btn btn-info" role="button">Start</a> <a href="/stop" class="btn btn-info" role="button">Stop</a></td>
+            <th scope="row" width="50%">{{ index $.Messages "node-address.label"}}</th>
+            <td><input type="text" readonly class="form-control-plaintext" value="{{.NodeAddress}}"></td>
+        </tr>
+        <tr>
+            <th scope="row" width="50%">{{ index $.Messages "node-actions.label"}}</th>
+            <td><a href="/console?name={{.NodeName}}" class="btn btn-info" role="button">Console (ssh)</a>
+        {{ if eq .NodeType.String "WorkerNode"}}
+                <a href="/drain?node={{.id}}" class="btn btn-info" role="button">Drain</a>
+                <a href="/cordon?node={{.id}}" class="btn btn-info" role="button">Cordon</a>
+        {{end}}
         </tr>
         </tbody>
     </table>
+    {{end}}
 {{end}}
 </div>
 

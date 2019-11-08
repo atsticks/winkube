@@ -440,6 +440,7 @@ func InstallConfigAction(context *webapp.RequestContext, writer http.ResponseWri
 	config := Container().Config
 	nodeManager := *Container().NodeManager
 	action := (*GetActionManager()).StartAction("Validating configuration")
+	defer action.Complete()
 	err := nodeManager.ValidateConfig()
 	if err != nil {
 		defer action.CompleteWithError(err)
@@ -452,11 +453,18 @@ func InstallConfigAction(context *webapp.RequestContext, writer http.ResponseWri
 			Model:    data,
 		}
 	} else {
-		defer action.CompleteWithMessage("Successfully validated.")
+		action.LogActionLn("Successfully validated.")
 		Log().Info("Config validation successful.")
 		_ = config.WriteConfig()
+		action.LogActionLn("Resetting Nodes...")
+		resetAction := (*Container().NodeManager).DestroyNodes()
+		if action.OnErrorComplete(resetAction.Error) {
+			Log().Error("Destroy Nodes failed: " + resetAction.Error.Error())
+		} else {
+			action.LogActionLn("Nodes destroyed.")
+			Container().RequiredAppStatus = APPSTATE_RUNNING
+		}
 	}
-	Container().RequiredAppStatus = APPSTATE_RUNNING
 	return &webapp.ActionResponse{
 		NextPage: "_redirect",
 		Model:    "/actions",

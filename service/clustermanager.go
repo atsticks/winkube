@@ -40,7 +40,7 @@ const (
 
 type Node struct {
 	Id        string    `json:"id"`
-	ClusterId string    `json:"clusterId"`
+	ClusterId string    `json:"ClusterId"`
 	NodeType  NodeType  `json:"nodeType"`
 	Name      string    `json:"name"`
 	Host      string    `json:"host"`
@@ -108,7 +108,7 @@ func createLocalControllerNode(clusterId string, nodeId string) *Node {
 	return &cn
 }
 
-// This creates the cluster API application serving cluster data to other nodes.
+// This creates the cluster API application serving cluster data to other Nodes.
 // This application is active only, if this node is configured as a cluster
 // controllerConnection.
 func createClusterManagerWebApp(controller *localControllerDelegate) *webapp.WebApplication {
@@ -116,7 +116,7 @@ func createClusterManagerWebApp(controller *localControllerDelegate) *webapp.Web
 	webapp.GetAction("/cluster/id", controller.actionClusterId)
 	webapp.GetAction("/cluster/known", actionKnownIds)
 	webapp.GetAction("/cluster", controller.actionServeClusterConfig)
-	webapp.GetAction("/cluster/state", actionClusterState)
+	webapp.GetAction("/cluster/ClusterState", actionClusterState)
 	webapp.GetAction("/cluster/nodeip", controller.actionReserveNodeIP)
 	webapp.DeleteAction("/cluster/nodeip", controller.actionReleaseNodeIP)
 	webapp.PostAction("/cluster/node", controller.actionNodeStarted)
@@ -132,7 +132,7 @@ func createClusterManagerWebApp(controller *localControllerDelegate) *webapp.Web
 
 // The cluster manager is the proxy management component which connects this machine with the overall
 // controllerConnection. If the controllerConnection is locally, the this component also manages the controllerConnection
-// api which is used by other nodes.
+// api which is used by other Nodes.
 type localController struct {
 	serviceRegistry    *netutil.ServiceRegistry `validate:"required"`
 	controllerDelegate *ControllerDelegate      `validate:"required"`
@@ -158,7 +158,7 @@ func (c *localController) Start(config *SystemConfiguration) error {
 		c.configureWorker(config)
 	}
 	err = Container().Validator.Struct(c)
-	if !util.CheckAndLogError("Failed to configure local nodes.", err) {
+	if !util.CheckAndLogError("Failed to configure local Nodes.", err) {
 		return err
 	}
 	var l netutil.ServiceListener = *c
@@ -249,7 +249,7 @@ func (c *localController) IsRunning() bool {
 }
 
 func (c *localController) GetState() string {
-	return (*c.controllerDelegate).Exec("kubectl get nodes")
+	return (*c.controllerDelegate).Exec("kubectl get Nodes")
 }
 
 func (this *localController) startLocal(config *SystemConfiguration, nodedId string) error {
@@ -415,7 +415,7 @@ func (r remoteControllerDelegate) GetClusterConfig() ClusterConfig {
 }
 
 func (r remoteControllerDelegate) GetState() string {
-	return r.masterRemoteExec("kubectl get nodes")
+	return r.masterRemoteExec("kubectl get Nodes")
 }
 
 func (r remoteControllerDelegate) GetMasters() []Node {
@@ -487,7 +487,7 @@ func (r remoteControllerDelegate) masterRemoteExec(command string) string {
 }
 
 // A ClusterControlPane is an active management component that manages a cluster. It trackes the
-// nodes (masters and workers) in the knownClusters, the IP addresses used for bridge nodes (VMNetCIDR) as
+// Nodes (masters and workers) in the knownClusters, the IP addresses used for bridge Nodes (VMNetCIDR) as
 // well as for internal NAT addressing (internalNetCIDR) and finally the credentials for joining
 // the cluster.
 type localControllerDelegate struct {
@@ -497,7 +497,7 @@ type localControllerDelegate struct {
 }
 
 func (r *localControllerDelegate) GetState() string {
-	return r.Exec("kubectl get nodes")
+	return r.Exec("kubectl get Nodes")
 }
 
 func (c *localControllerDelegate) Start() error {
@@ -579,7 +579,7 @@ func (c *localControllerDelegate) Exec(command string) string {
 // Evaluates the cluster id as the right part of the WinKube service identifier:
 // e.g. 'master:myCluster01' results in 'myCluster01'
 func getClusterId(service netutil.Service) string {
-	// format: service:clusterId:version
+	// format: service:ClusterId:version
 	splits := strings.Split(service.Service, ":")
 	return splits[1]
 }
@@ -587,7 +587,7 @@ func getClusterId(service netutil.Service) string {
 // Evaluates the service id as the left part of the WinKube service identifier:
 // e.g. 'master:myCluster01' results in 'master'
 func getServiceIdentifier(service netutil.Service) string {
-	// format: service:clusterId:version
+	// format: service:ClusterId:version
 	splits := strings.Split(service.Service, ":")
 	return splits[0]
 }
@@ -595,7 +595,7 @@ func getServiceIdentifier(service netutil.Service) string {
 // Evaluates the service id as the left part of the WinKube service identifier:
 // e.g. 'master:myCluster01' results in 'master'
 func getNodeName(service netutil.Service) string {
-	// format: service:clusterId:version
+	// format: service:ClusterId:version
 	splits := strings.Split(service.Service, ":")
 	return splits[2]
 }
@@ -603,7 +603,7 @@ func getNodeName(service netutil.Service) string {
 // Evaluates the service id as the left part of the WinKube service identifier:
 // e.g. 'master:myCluster01' results in 'master'
 func getServiceVersion(service netutil.Service) string {
-	// format: service:clusterId:version
+	// format: service:ClusterId:version
 	splits := strings.Split(service.Service, ":")
 	return splits[3]
 }
@@ -886,7 +886,7 @@ func actionClusterState(context *webapp.RequestContext, writer http.ResponseWrit
 	result := make(map[string]string)
 	result["cluster"] = Container().Config.ClusterId()
 	result["timestamp"] = time.Now().String()
-	result["state"] = (*Container().LocalController).GetState()
+	result["ClusterState"] = (*Container().LocalController).GetState()
 	json, _ := json.MarshalIndent(result, "", "  ")
 	writer.Write(json)
 	writer.Header().Set("Content-Type", "application/json")

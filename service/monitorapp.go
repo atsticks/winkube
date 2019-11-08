@@ -61,9 +61,16 @@ func MonitorWebApplication(router *mux.Router) *webapp.WebApplication {
 }
 
 type NodeInfo struct {
+	InstanceName string
+	InstanceIp   string
+	StartedSince string
+	Nodes        []ClusterNodeConfig
 }
 
 type ClusterInfo struct {
+	ClusterId         string
+	ClusterController string
+	ClusterState      string
 }
 
 type Info struct {
@@ -104,17 +111,40 @@ func ActionLogAction(context *webapp.RequestContext, writer http.ResponseWriter)
 
 // Web action starting the setup process
 func MainIndexAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	if !Container().Config.Ready() {
+	config := Container().Config
+	if !config.Ready() {
 		return &webapp.ActionResponse{
 			NextPage: "_redirect",
 			Model:    "/setup",
 		}
 	}
+	var nodes []ClusterNodeConfig
+	if config.IsMasterNode() {
+		nodes = append(nodes, *config.MasterNode)
+	}
+	if config.IsWorkerNode() {
+		nodes = append(nodes, *config.WorkerNode)
+	}
+	var controller string
+	if config.IsControllerNode() {
+		controller = hostname() + "(localohost)"
+	} else {
+		controller = config.ClusterLogin.ControllerHost
+	}
 	return &webapp.ActionResponse{
 		NextPage: "index",
 		Model: Info{
-			NodeInfo:    NodeInfo{},
-			ClusterInfo: ClusterInfo{},
+			NodeInfo: NodeInfo{
+				InstanceName: config.NetHostname,
+				InstanceIp:   config.NetHostIP + " (" + config.NetHostInterface + ")",
+				StartedSince: "N/A",
+				Nodes:        nodes,
+			},
+			ClusterInfo: ClusterInfo{
+				ClusterController: controller,
+				ClusterId:         config.ClusterId(),
+				ClusterState:      (*Container().LocalController).GetState(),
+			},
 		},
 	}
 }
@@ -142,7 +172,13 @@ func StopAction(context *webapp.RequestContext, writer http.ResponseWriter) *web
 }
 
 func NodeConsoleAction(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
-	cmd := exec.Command("cmd", "/C", "start", "vagrant", "ssh", Container().Config.MasterNode.NodeName)
+	nodeName := context.GetParameter("name")
+	if nodeName == "" {
+		writer.Write([]byte("Require an instance name."))
+		writer.WriteHeader(http.StatusBadRequest)
+		return nil
+	}
+	cmd := exec.Command("cmd", "/C", "start", "vagrant", "ssh", nodeName)
 	err := cmd.Run()
 	if err != nil {
 		log.Panic("Cannopt open console...", err)

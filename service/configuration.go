@@ -90,7 +90,7 @@ type ClusterConfig struct {
 	ClusterCredentials   string
 	ClusterPodCIDR       string `validate:"required"`
 	ClusterServiceDomain string `validate:"required"`
-	// The net integration of the nodes with their hosts
+	// The net integration of the Nodes with their hosts
 	ClusterVMNet VMNetType `validate:"required"`
 	// The internal network, if NAT is used,or the external node network, if Bridge networking is used.
 	ClusterNetCIDR       string `validate:"required"`

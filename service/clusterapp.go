@@ -30,7 +30,7 @@ func ClusterWebApplication(router *mux.Router) *webapp.WebApplication {
 	Log().Info("Initializing cluster endpoint...")
 	setupWebapp := webapp.CreateWebApp("WinKube-Cluster", "/cluster", language.English)
 	// Actions
-	setupWebapp.GetAction("/nodes", NodesAction)
+	setupWebapp.GetAction("/Nodes", NodesAction)
 	setupWebapp.GetAction("/config", ConfigAction)
 	//setupWebapp.GetAction("/config/ip/used", GetUsedIPAction)
 	//setupWebapp.GetAction("/config/ip/free", GetFreeIPAction)

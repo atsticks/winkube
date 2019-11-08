@@ -90,13 +90,6 @@ func switchToRunning(config *service.SystemConfiguration) {
 			resetToSetupStatus(oldStatus)
 			return
 		}
-		action.LogActionLn("Resetting nodes...")
-		resetAction := (*service.Container().NodeManager).DestroyNodes()
-		if action.OnErrorComplete(resetAction.Error) {
-			log.Error("Destrey nodes failed: " + resetAction.Error.Error())
-			resetToSetupStatus(oldStatus)
-			return
-		}
 		action.LogActionLn("Configuring nodes...")
 		clusterConfig := (*service.Container().LocalController).GetClusterConfig()
 		assert.AssertNotNil(clusterConfig)
