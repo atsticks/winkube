@@ -75,7 +75,8 @@
         </tr>
         <tr>
             <th scope="row" width="50%">{{ index $.Messages "node-actions.label"}}</th>
-            <td><a href="/enter-setup" class="btn btn-info" role="button">Change Configuration</a></td></td>
+            <td><a href="/enter-setup" class="btn btn-info" role="button">Change Configuration</a>
+                <a href="/actions" class="btn btn-info" role="button">Show Tasks</a></td></td>
         </tr>
         </tbody>
     </table>
@@ -102,6 +103,10 @@
         <tr>
             <th scope="row" width="50%">{{ index $.Messages "node-address.label"}}</th>
             <td><input type="text" readonly class="form-control-plaintext" value="{{.NodeAddress}}"></td>
+        </tr>
+        <tr>
+            <th scope="row" width="50%">{{ index $.Messages "node-address-internal.label"}}</th>
+            <td><input type="text" readonly class="form-control-plaintext" value="{{.NodeAddressInternal}}"></td>
         </tr>
         <tr>
             <th scope="row" width="50%">{{ index $.Messages "node-actions.label"}}</th>

@@ -121,16 +121,16 @@ func (this ClusterConfig) AllWorkers() []ClusterNodeConfig {
 }
 
 type ClusterNodeConfig struct {
-	NodeName           string   `validate:"required"` // node
-	NodeType           NodeType `validate:"required"`
-	NodeNetType        VMNetType
-	NodeAddress        string
-	NodeAdressInternal string
-	NodeMemory         int `validate:"required,gte=1028"` // 2048
-	NodeCPU            int `validate:"required,gte=1"`    // 2
-	IsJoiningNode      bool
-	NodeBox            string `validate:"required"` // ubuntu/xenial64, centos/7
-	NodeBoxVersion     string `validate:"required"` // 20180831.0.0
+	NodeName            string   `validate:"required"` // node
+	NodeType            NodeType `validate:"required"`
+	NodeNetType         VMNetType
+	NodeAddress         string
+	NodeAddressInternal string
+	NodeMemory          int `validate:"required,gte=1028"` // 2048
+	NodeCPU             int `validate:"required,gte=1"`    // 2
+	IsJoiningNode       bool
+	NodeBox             string `validate:"required"` // ubuntu/xenial64, centos/7
+	NodeBoxVersion      string `validate:"required"` // 20180831.0.0
 }
 
 type SystemConfiguration struct {
@@ -243,6 +243,7 @@ func (config *SystemConfiguration) InitControllerConfig() *ClusterConfig {
 func (config *SystemConfiguration) ReadConfig() *Action {
 	actionManager := *GetActionManager()
 	action := actionManager.StartAction("Read config from " + WINKUBE_CONFIG_FILE)
+	defer action.Complete()
 	f, err := os.Open(WINKUBE_CONFIG_FILE)
 	if err != nil {
 		actionManager.LogAction(action.Id, "Could not open file: "+WINKUBE_CONFIG_FILE)
@@ -263,9 +264,10 @@ func (config *SystemConfiguration) ReadConfig() *Action {
 	}
 	err = Container().Validator.Struct(config)
 	if err != nil {
-		actionManager.LogAction(action.Id, "Loaded config is not valid, will trigger setup, error: "+err.Error())
+		action.LogActionLn("Loaded config is not valid, will trigger setup...")
+		action.CompleteWithError(err)
 	}
-	return actionManager.CompleteWithMessage(action.Id, "Config successfully read: \n\n"+fmt.Sprintf("Id: %v\nNet:%+v\nHost:%+v\nCluster:%+v\nMaster:%+v\nWorker:%+v\nNodes:%+v\n",
+	return actionManager.LogAction(action.Id, "Config successfully read: \n\n"+fmt.Sprintf("Id: %v\nNet:%+v\nHost:%+v\nCluster:%+v\nMaster:%+v\nWorker:%+v\nNodes:%+v\n",
 		config.Id,
 		config.LocalHostConfig,
 		config.NetConfig,
@@ -318,54 +320,3 @@ func (conf SystemConfiguration) ClusterId() string {
 		return conf.ClusterLogin.ClusterId
 	}
 }
-
-//func eval(props util2.Properties, key string, defaultValue string) string {
-//	val := props[key]
-//	if val == "" {
-//		return defaultValue
-//	}
-//	return val
-//}
-//func evalBool(props util2.Properties, key string, defaultValue bool) bool {
-//	val := props[key]
-//	if val == "" {
-//		return defaultValue
-//	}
-//	return strings.ToLower(strings.TrimSpace(val)) == "true"
-//}
-//func evalInt(props util2.Properties, key string, defaultValue int) int {
-//	val := props[key]
-//	if val == "" {
-//		return defaultValue
-//	}
-//	r, err := strconv.Atoi(strings.TrimSpace(val))
-//	if err != nil {
-//		logrus.Info("Invalid config entry for " + key + " ; " + val)
-//		return defaultValue
-//	}
-//	return r
-//}
-//func evalNodeNetType(props util2.Properties, key string, defaultValue VMNetType) VMNetType {
-//	val := props[key]
-//	if val == "" {
-//		return defaultValue
-//	}
-//	for _, nt := range NodeNetType_Values() {
-//		if nt.String() == val {
-//			return nt
-//		}
-//	}
-//	return defaultValue
-//}
-//func evalNodeType(props util2.Properties, key string, defaultValue NodeType) NodeType {
-//	val := props[key]
-//	if val == "" {
-//		return defaultValue
-//	}
-//	for _, nt := range NodeType_Values() {
-//		if nt.String() == val {
-//			return nt
-//		}
-//	}
-//	return defaultValue
-//}

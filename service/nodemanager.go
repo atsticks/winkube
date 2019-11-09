@@ -38,6 +38,7 @@ type VagrantConfig struct {
 	NetType           VMNetType `validate:"required"`
 	IsLocalMaster     bool
 	IsLocalController bool
+	ControlPane       string
 	PublicMaster      string
 	MasterToken       string
 }
@@ -200,14 +201,14 @@ func (this *nodeManager) releaseIPsOnError(action *Action, configuration SystemC
 			if configuration.MasterNode.NodeNetType == Bridged {
 				(*Container().LocalController).ReleaseNodeIP(configuration.MasterNode.NodeAddress)
 			} else {
-				(*Container().LocalController).ReleaseNodeIP(configuration.MasterNode.NodeAdressInternal)
+				(*Container().LocalController).ReleaseNodeIP(configuration.MasterNode.NodeAddressInternal)
 			}
 		}
 		if configuration.IsWorkerNode() {
 			if configuration.MasterNode.NodeNetType == Bridged {
 				(*Container().LocalController).ReleaseNodeIP(configuration.WorkerNode.NodeAddress)
 			} else {
-				(*Container().LocalController).ReleaseNodeIP(configuration.WorkerNode.NodeAdressInternal)
+				(*Container().LocalController).ReleaseNodeIP(configuration.WorkerNode.NodeAddressInternal)
 			}
 		}
 	}
@@ -227,6 +228,10 @@ func createVagrantConfig(systemConfiguration SystemConfiguration, clusterConfig 
 		IsLocalMaster:     systemConfiguration.IsPrimaryMaster(),
 		IsLocalController: systemConfiguration.IsControllerNode(),
 		MasterToken:       clusterConfig.ClusterToken,
+		ControlPane:       clusterConfig.ClusterControlPlane,
+	}
+	if config.ControlPane != "" {
+		config.PublicMaster = config.ControlPane
 	}
 	return config
 }

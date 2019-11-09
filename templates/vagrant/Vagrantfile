@@ -23,7 +23,7 @@ servers = [
             :type => "master",
             :box => "{{.NodeBox}}",
             :box_version => "{{.NodeBoxVersion}}",
-            :ip => "{{.NodeAdressInternal}}",
+            :ip => "{{if eq $.NetType.String "NAT" }}{{.NodeAddressInternal}}{{else}}{{.NodeAdress}}{{end}}",
             :mem => "{{.NodeMemory}}",
             :cpu => "{{.NodeCPU}}",
             :network => "{{.NodeNetType.String}}"
@@ -37,7 +37,7 @@ servers = [
             :type => "worker",
             :box => "{{.NodeBox}}",
             :box_version => "{{.NodeBoxVersion}}",
-            :ip => "{{.NodeAdressInternal}}",
+            :ip => "{{if eq $.NetType.String "NAT" }}{{.NodeAddressInternal}}{{else}}{{.NodeAdress}}{{end}}",
             :mem => "{{.NodeMemory}}",
             :cpu => "{{.NodeCPU}}",
             :network => "{{.NodeNetType.String}}"
@@ -118,7 +118,13 @@ SCRIPT
 
 $configureMaster = <<-SCRIPT
     echo "Starting Kubernetes master..."
-    kubeadm init --apiserver-advertise-address={{.MasterConfig.NodeAdressInternal}} --apiserver-cert-extra-sans={{.MasterConfig.NodeAddress}} --pod-network-cidr={{.PodNetCIDR}} {{ if .NetCIDR}}--service-cidr={{.NetCIDR}} {{end}} --apiserver-bind-port={{.ApiServerBindPort}} --service-dns-domain={{.ServiceDNSDomain}}
+    {{if eq $.NetType.String "NAT" }}
+    # Init NAT-ed master...
+    kubeadm init --apiserver-advertise-address={{.MasterConfig.NodeAddressInternal}} --apiserver-cert-extra-sans="{{.MasterConfig.NodeAddress}}" --pod-network-cidr={{.PodNetCIDR}} {{ if .NetCIDR}}--service-cidr={{.NetCIDR}} {{end}} --apiserver-bind-port={{.ApiServerBindPort}} --service-dns-domain={{.ServiceDNSDomain}} {{if $.ControlPane}} --control-plane-endpoint={{$.ControlPane}}{{end}}
+    {{else}}
+    # Init bridged master...
+    kubeadm init --apiserver-advertise-address={{.MasterConfig.NodeAddress}} --pod-network-cidr={{.PodNetCIDR}} {{ if .NetCIDR}}--service-cidr={{.NetCIDR}} {{end}} --apiserver-bind-port={{.ApiServerBindPort}} --service-dns-domain={{.ServiceDNSDomain}} {{if .ControlPane}} --control-plane-endpoint={{.ControlPane}}{{end}}
+    {{end}}
 
     echo "Initializing kubectl..."
     # copying credentials to regular user - vagrant
@@ -134,7 +140,6 @@ $configureMaster = <<-SCRIPT
 
     echo "Installing Flannel..."
     kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
-    # kubectl convert -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml | kubectl create -f -:q:
 
     echo "Creating Kubernetes Join Token..."
     kubeadm token create >> /etc/kubeadm_join_token

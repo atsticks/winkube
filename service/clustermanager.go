@@ -185,11 +185,11 @@ func (c localController) ServiceReceived(service netutil.Service) {
 func (this *localController) configureMaster(configuration *SystemConfiguration) {
 	configuration.MasterNode.NodeNetType = configuration.ControllerConfig.ClusterVMNet
 	if configuration.ControllerConfig.ClusterVMNet == NAT {
-		configuration.MasterNode.NodeAddress = (*this.controllerDelegate).ReserveNodeIP(true)
-		configuration.MasterNode.NodeAdressInternal = configuration.MasterNode.NodeAddress
-	} else if configuration.ControllerConfig.ClusterVMNet == Bridged {
+		configuration.MasterNode.NodeAddressInternal = (*this.controllerDelegate).ReserveNodeIP(true)
 		configuration.MasterNode.NodeAddress = configuration.LocalHostConfig.NetHostname
-		configuration.MasterNode.NodeAdressInternal = (*this.controllerDelegate).ReserveNodeIP(true)
+	} else if configuration.ControllerConfig.ClusterVMNet == Bridged {
+		configuration.MasterNode.NodeAddress = (*this.controllerDelegate).ReserveNodeIP(true)
+		configuration.MasterNode.NodeAddressInternal = configuration.MasterNode.NodeAddress
 	} else {
 		panic("Unsupported net type found")
 	}
@@ -198,10 +198,10 @@ func (this *localController) configureWorker(configuration *SystemConfiguration)
 	configuration.WorkerNode.NodeNetType = configuration.ControllerConfig.ClusterVMNet
 	if configuration.ControllerConfig.ClusterVMNet == Bridged {
 		configuration.WorkerNode.NodeAddress = (*this.controllerDelegate).ReserveNodeIP(false)
-		configuration.WorkerNode.NodeAdressInternal = configuration.WorkerNode.NodeAddress
+		configuration.WorkerNode.NodeAddressInternal = configuration.WorkerNode.NodeAddress
 	} else if configuration.ControllerConfig.ClusterVMNet == NAT {
 		configuration.WorkerNode.NodeAddress = configuration.LocalHostConfig.NetHostname
-		configuration.WorkerNode.NodeAdressInternal = (*this.controllerDelegate).ReserveNodeIP(true)
+		configuration.WorkerNode.NodeAddressInternal = (*this.controllerDelegate).ReserveNodeIP(true)
 	} else {
 		panic("Unsupported net type found")
 	}
@@ -249,6 +249,9 @@ func (c *localController) IsRunning() bool {
 }
 
 func (c *localController) GetState() string {
+	if c.controllerDelegate == nil {
+		return "Uninitialized controller."
+	}
 	return (*c.controllerDelegate).Exec("kubectl get Nodes")
 }
 

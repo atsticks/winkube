@@ -250,6 +250,11 @@ func readLocalNodeConfig(config *ClusterNodeConfig, context *webapp.RequestConte
 			context.GetParameter(prefix + "Node-NodeAddress")
 		Log().Debug("In: " + prefix + "NodeAddress = " + config.NodeAddress)
 	}
+	if context.GetParameter(prefix+"Node-NodeAddressInternal") != "" {
+		config.NodeAddressInternal =
+			context.GetParameter(prefix + "Node-NodeAddressInternal")
+		Log().Debug("In: " + prefix + "NodeAddressInternal = " + config.NodeAddressInternal)
+	}
 	if context.GetParameter(prefix+"Node-Type") != "" {
 		config.NodeType =
 			nodeTypeFromString(context.GetParameter(prefix + "Node-Type"))
@@ -443,7 +448,7 @@ func InstallConfigAction(context *webapp.RequestContext, writer http.ResponseWri
 	defer action.Complete()
 	err := nodeManager.ValidateConfig()
 	if err != nil {
-		defer action.CompleteWithError(err)
+		action.CompleteWithError(err)
 		data := make(map[string]interface{})
 		bean := readConfig(context)
 		data["Config"] = bean
@@ -460,8 +465,9 @@ func InstallConfigAction(context *webapp.RequestContext, writer http.ResponseWri
 		resetAction := (*Container().NodeManager).DestroyNodes()
 		if action.OnErrorComplete(resetAction.Error) {
 			Log().Error("Destroy Nodes failed: " + resetAction.Error.Error())
+			action.LogActionLn("Destroy Nodes failed: " + resetAction.Error.Error())
 		} else {
-			action.LogActionLn("Nodes destroyed.")
+			action.LogActionLn("Nodes destroyed, set desired application state to RUNNING...")
 			Container().RequiredAppStatus = APPSTATE_RUNNING
 		}
 	}

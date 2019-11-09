@@ -127,9 +127,15 @@ func MainIndexAction(context *webapp.RequestContext, writer http.ResponseWriter)
 	}
 	var controller string
 	if config.IsControllerNode() {
-		controller = hostname() + "(localohost)"
+		controller = hostname() + " (localhost)"
 	} else {
 		controller = config.ClusterLogin.ControllerHost
+	}
+	var clusterState string
+	if (*Container().LocalController) != nil {
+		clusterState = (*Container().LocalController).GetState()
+	} else {
+		clusterState = "Not initialized."
 	}
 	return &webapp.ActionResponse{
 		NextPage: "index",
@@ -143,7 +149,7 @@ func MainIndexAction(context *webapp.RequestContext, writer http.ResponseWriter)
 			ClusterInfo: ClusterInfo{
 				ClusterController: controller,
 				ClusterId:         config.ClusterId(),
-				ClusterState:      (*Container().LocalController).GetState(),
+				ClusterState:      clusterState,
 			},
 		},
 	}

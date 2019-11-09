@@ -143,6 +143,11 @@
                        value="{{ .Data.Config.Values.MasterNode.NodeAddress }}">
                 <small id="masterIPHelp" class="form-text text-muted">{{ index .Messages "master-ip.help"}}</small>
 
+                <label for="master-net_nodeip">{{ index .Messages "master-ip.label"}}</label>
+                <input name="Master-NodeAddressInternal" type="text" class="form-control" id="net_nodeipInternal" aria-describedby="masterIPInternalHelp" placeholder="{{ index .Messages "node-ip-internal.placeholder"}}"
+                       value="{{ .Data.Config.Values.MasterNode.NodeAddressInternal }}">
+                <small id="masterIPInternalHelp" class="form-text text-muted">{{ index .Messages "master-ip-internal.help"}}</small>
+
                 <label for="master-net_masterimage">{{ index .Messages "master-image.label"}}</label>
                 <input name="Master-Box" type="text" class="form-control" id="net_masterimage" aria-describedby="masterImageHelp" placeholder="{{ index .Messages "master-image.placeholder"}}"
                        value="{{ .Data.Config.Values.MasterNode.NodeBox }}">
@@ -176,9 +181,14 @@
                 <small id="workerNameHelp" class="form-text text-muted">{{ index .Messages "worker-name.help"}}</small>
 
                 <label for="worker-net_nodeip">{{ index .Messages "worker-ip.label"}}</label>
-                <input name="Worker-NodeIP" type="text" class="form-control" id="net_nodeip" aria-describedby="workerIPHelp" placeholder="{{ index .Messages "node-ip.placeholder"}}"
-                       value="{{ .Data.Config.Values.WorkerNode.NodeIP }}">
+                <input name="Worker-NodeAddress" type="text" class="form-control" id="net_nodeip" aria-describedby="workerIPHelp" placeholder="{{ index .Messages "node-ip.placeholder"}}"
+                       value="{{ .Data.Config.Values.WorkerNode.NodeAddress }}">
                 <small id="workerIPHelp" class="form-text text-muted">{{ index .Messages "worker-ip.help"}}</small>
+
+                <label for="worker-net_nodeip-internal">{{ index .Messages "worker-ip-internal.label"}}</label>
+                <input name="Worker-NodeAddressInternal" type="text" class="form-control" id="worker-net_nodeip-internal" aria-describedby="workerIPInternalHelp" placeholder="{{ index .Messages "node-ip-internal.placeholder"}}"
+                       value="{{ .Data.Config.Values.WorkerNode.NodeAddress }}">
+                <small id="workerIPInternalHelp" class="form-text text-muted">{{ index .Messages "worker-ip-internal.help"}}</small>
 
                 <label for="worker-net_image">{{ index .Messages "worker-image.label"}}</label>
                 <input name="Worker-Box" type="text" class="form-control" id="net_workerimage" aria-describedby="workerImageHelp" placeholder="{{ index .Messages "worker-image.placeholder"}}"
