@@ -113,6 +113,7 @@ func createLocalControllerNode(clusterId string, nodeId string) *Node {
 // controllerConnection.
 func createClusterManagerWebApp(controller *localControllerDelegate) *webapp.WebApplication {
 	webapp := webapp.CreateWebApp("cluster", "", language.English)
+	webapp.AuthAction = controllerAuthAction
 	webapp.GetAction("/cluster/id", controller.actionClusterId)
 	webapp.GetAction("/cluster/known", actionKnownIds)
 	webapp.GetAction("/cluster", controller.actionServeClusterConfig)
@@ -128,6 +129,12 @@ func createClusterManagerWebApp(controller *localControllerDelegate) *webapp.Web
 	webapp.GetAction("/master/exec", controller.actionMasterExecCommand)
 	webapp.GetAction("/worker/exec", controller.actionWorkerExecCommand)
 	return webapp
+}
+
+func initHeaders(headers *http.Header) {
+	config := Container().Config
+	headers.Set("clusterid", config.ClusterId())
+	headers.Set("clustercredentials", config.ClusterCredentials())
 }
 
 // The cluster manager is the proxy management component which connects this machine with the overall
@@ -655,6 +662,34 @@ func hostname() string {
 }
 
 // Web application actions...
+
+func controllerAuthAction(context *webapp.RequestContext, writer http.ResponseWriter) bool {
+	if strings.Contains(context.Request.RequestURI, "/cluster/id") {
+		// no security here...
+		return true
+	}
+	if Container().CurrentStatus != APPSTATE_RUNNING {
+		writer.Header().Set("Content-Type", "text/plain")
+		writer.Write([]byte("Not in running state."))
+		writer.WriteHeader(http.StatusInternalServerError)
+		return false
+	}
+	clusterId := context.GetParameter("clusterid")
+	clusterCredentials := context.GetParameter("clustercredentials")
+	if config().ClusterId() != clusterId {
+		writer.Header().Set("Content-Type", "text/plain")
+		writer.Write([]byte("Unauthorized."))
+		writer.WriteHeader(http.StatusUnauthorized)
+		return false
+	}
+	if config().ClusterCredentials() != clusterCredentials {
+		writer.Header().Set("Content-Type", "text/plain")
+		writer.Write([]byte("Unauthorized."))
+		writer.WriteHeader(http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
 
 func (this localControllerDelegate) actionClusterId(context *webapp.RequestContext, writer http.ResponseWriter) *webapp.ActionResponse {
 	writer.Write([]byte(this.clusterState.ClusterConfig.ClusterId))

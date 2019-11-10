@@ -320,3 +320,10 @@ func (conf SystemConfiguration) ClusterId() string {
 		return conf.ClusterLogin.ClusterId
 	}
 }
+func (conf SystemConfiguration) ClusterCredentials() string {
+	if conf.IsControllerNode() {
+		return conf.ControllerConfig.ClusterCredentials
+	} else {
+		return conf.ClusterLogin.ClusterCredentials
+	}
+}

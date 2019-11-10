@@ -34,6 +34,7 @@ type WebApplication struct {
 	Name            string
 	templateManager *util.TemplateManager
 	Pages           map[string]*Page
+	AuthAction      func(req *RequestContext, writer http.ResponseWriter) bool
 	GetActions      map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse
 	PostActions     map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse
 	PutActions      map[string]*func(req *RequestContext, writer http.ResponseWriter) *ActionResponse
@@ -114,22 +115,28 @@ func (app *WebApplication) HandleRequest(writer http.ResponseWriter, req *http.R
 		Language: language,
 	}
 
-	var action = app.findAction(req)
-
-	if action != nil {
-		actionResponse := (*action)(renderModel.Context, writer)
-		if actionResponse == nil || actionResponse.Complete {
+	var actionResponse *ActionResponse
+	if app.AuthAction != nil {
+		cont := app.AuthAction(renderModel.Context, writer)
+		if !cont {
 			return
 		}
-		if actionResponse.NextPage != "" {
-			nextPage, found := app.Pages[actionResponse.NextPage]
-			if !found {
-				panic("Invalid page: " + actionResponse.NextPage)
-			}
-			renderModel.Page = nextPage
-		}
-		renderModel.Data = actionResponse.Model
 	}
+	var action = app.findAction(req)
+	if action != nil {
+		actionResponse = (*action)(renderModel.Context, writer)
+	}
+	if actionResponse == nil || actionResponse.Complete {
+		return
+	}
+	if actionResponse.NextPage != "" {
+		nextPage, found := app.Pages[actionResponse.NextPage]
+		if !found {
+			panic("Invalid page: " + actionResponse.NextPage)
+		}
+		renderModel.Page = nextPage
+	}
+	renderModel.Data = actionResponse.Model
 	// no action, try to find page...
 	if renderModel.Page == nil {
 		renderModel.Page = app.findPage(req)
@@ -261,10 +268,25 @@ type RequestContext struct {
 	Language    language.Tag
 }
 
+func (this RequestContext) GetHeaderParameter(key string) string {
+	return this.Request.Header.Get(key)
+}
+
+func (this RequestContext) GetHeaderParameterOrDefault(key string, defaultValue string) string {
+	val := this.GetHeaderParameter(key)
+	if val == "" {
+		return defaultValue
+	}
+	return val
+}
+
 func (this RequestContext) GetParameter(key string) string {
 	param := this.GetQueryParameter(key)
 	if param == "" {
 		param = this.GetFormParameter(key)
+	}
+	if param == "" {
+		param = this.GetHeaderParameter(key)
 	}
 	//if(param == ""){
 	//	param = this.GetSessionAttribute(key).(string)
